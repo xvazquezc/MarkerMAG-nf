@@ -38,7 +38,8 @@ def print_main_help():
     rename_reads     ->  rename paired short reads
     matam_16s        ->  reconstruct 16S rRNA genes with Matam
     uclust_16s       ->  cluster 16S rRNA genes with Usearch
-    barrnap_16s      ->  identify 16S rRNA genes with Barrnap
+    polish_16s       ->  trim non-16S ends from sequences using Barrnap
+    barrnap_16s      ->  identify 16S rRNA genes in MAGs with Barrnap
     subsample_reads  ->  subsample reads with Usearch
 
     ''' % version(config_dict)
@@ -213,6 +214,14 @@ if __name__ == '__main__':
         subsample_reads_parser.add_argument('-usearch', required=False, default='usearch',  help='path to usearch executable file, default: usearch')
         args = vars(parser.parse_args())
         subsample_reads.subsample_reads(args)
+
+    elif sys.argv[1] == 'polish_16s':
+        from MarkerMAG import polish_16s
+        polish_16s_parser = subparsers.add_parser('polish_16s', description='Trim non-16S ends from sequences using Barrnap', usage=polish_16s.polish_16s_usage)
+        polish_16s_parser.add_argument('-in',   required=True,  help='input 16S sequences (fasta)')
+        polish_16s_parser.add_argument('-out',  required=True,  help='output polished sequences (fasta)')
+        args = vars(parser.parse_args())
+        polish_16s.polish_16s(args)
 
     elif sys.argv[1] == 'barrnap_16s':
         from MarkerMAG import barrnap_16s

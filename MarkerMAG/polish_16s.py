@@ -40,31 +40,41 @@ def polish_16s(args):
 
     barrnap_stdout   = '%s/%s.log'    % (file_out_path, file_out_base)
     file_out_gff     = '%s/%s.gff'    % (file_out_path, file_out_base)
-    file_out_ffn_tmp = '%s/%s_tmp%s' % (file_out_path, file_out_base, file_out_ext)
-
-    barrnap_cmd = 'barrnap --quiet -o %s %s 2> %s > %s' % (file_out_ffn_tmp, file_in, barrnap_stdout, file_out_gff)
+    barrnap_cmd = 'barrnap --quiet %s 2> %s > %s' % (file_in, barrnap_stdout, file_out_gff)
     os.system(barrnap_cmd)
 
+    input_seqs = SeqIO.to_dict(SeqIO.parse(file_in, 'fasta'))
     wrote_id = []
     file_out_ffn_handle = open(file_out_ffn, 'w')
-    for each_16s in SeqIO.parse(file_out_ffn_tmp, 'fasta'):
-        seq_id = each_16s.id
-        if seq_id.startswith('16S_rRNA::'):
-            seq_id_polished = seq_id[10:].split(':')[0]
+    with open(file_out_gff) as gff_handle:
+        for line in gff_handle:
+            if line.startswith('#'):
+                continue
 
-            if seq_id_polished not in wrote_id:
-                file_out_ffn_handle.write('>%s\n' % seq_id_polished)
-                file_out_ffn_handle.write('%s\n' % str(each_16s.seq))
-                wrote_id.append(seq_id_polished)
-            else:
-                file_out_ffn_handle.write('>%s_%s\n' % (seq_id_polished, (wrote_id.count(seq_id_polished) + 1)))
-                file_out_ffn_handle.write('%s\n' % str(each_16s.seq))
-                wrote_id.append(seq_id_polished)
+            fields = line.rstrip().split('\t')
+            if len(fields) != 9:
+                continue
+
+            seq_id, _, _, start, end, _, strand, _, attributes = fields
+            if ('Name=16S_rRNA' not in attributes) and ('product=16S ribosomal RNA' not in attributes):
+                continue
+
+            each_16s = input_seqs[seq_id][int(start) - 1:int(end)]
+            if strand == '-':
+                each_16s = each_16s.reverse_complement()
+
+            output_id = seq_id
+            if seq_id in wrote_id:
+                output_id = '%s_%s' % (seq_id, wrote_id.count(seq_id) + 1)
+
+            file_out_ffn_handle.write('>%s\n' % output_id)
+            file_out_ffn_handle.write('%s\n' % str(each_16s.seq))
+            wrote_id.append(seq_id)
 
     file_out_ffn_handle.close()
 
-    os.system('rm %s' % file_out_ffn_tmp)
-    os.system('rm %s.fai' % file_in)
+    if os.path.isfile('%s.fai' % file_in):
+        os.remove('%s.fai' % file_in)
 
 
 if __name__ == '__main__':

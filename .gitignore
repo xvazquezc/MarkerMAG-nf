@@ -1,1 +1,16 @@
 .idea
+.vscode/
+__pycache__/
+*.py[cod]
+
+# Nextflow runtime state and generated results
+.nextflow/
+nextflow/.nextflow.log*
+nextflow/work/
+nextflow/barrnap.bed
+nextflow/test/results*/
+nextflow/test/data/MarkerMAG_demo_data.zip
+nextflow/test/data/MarkerMAG_demo_data/
+nextflow/test/data/__MACOSX/
+nextflow/test/data/mags/
+nextflow/test/data/16s/demo_16S.fasta

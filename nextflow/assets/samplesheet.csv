@@ -1,0 +1,4 @@
+sample,r1,r2,mag_dir,mag_ext,16s_reads,16s_fasta
+sample1,/path/to/sample1_R1.fasta,/path/to/sample1_R2.fasta,/path/to/sample1_mags,fa,,
+sample2,/path/to/sample2_R1.fastq.gz,/path/to/sample2_R2.fastq.gz,/path/to/sample2_mags,fa,/path/to/sample2_extracted_16S_reads.fastq,
+sample3,/path/to/sample3_R1.fasta,/path/to/sample3_R2.fasta,/path/to/sample3_mags,fa,,/path/to/sample3_16S.fasta

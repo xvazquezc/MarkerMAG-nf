@@ -1,5 +1,8 @@
 
-## MarkerMAG: linking MAGs with 16S rRNA marker genes using paired-end short reads
+## MarkerMAG-nf: a Nextflow implementation of MarkerMAG
+
+This repository extends MarkerMAG with a reproducible Nextflow DSL2 workflow
+while retaining the original MarkerMAG command-line implementation.
 
 [![pypi licence](https://img.shields.io/pypi/l/MarkerMAG.svg)](https://opensource.org/licenses/gpl-3.0.html)
 [![pypi version](https://img.shields.io/pypi/v/MarkerMAG.svg)](https://pypi.python.org/pypi/MarkerMAG) 
@@ -33,6 +36,8 @@ MarkerMAG modules
 
     + `rename_reads`: rename paired reads ([manual](doc/README_rename_reads.md))
     + `matam_16s`: assemble 16S rRNA genes with Matam ([manual](doc/README_matam_16s.md))
+    + `uclust_16s`: cluster 16S rRNA gene sequences with Usearch
+    + `polish_16s`: trim non-16S sequence ends with Barrnap
     + `barrnap_16s`: identify 16S rRNA genes from genomes/MAGs with Barrnap ([manual](doc/README_barrnap_16s.md))
 
 
@@ -98,6 +103,147 @@ How to run
       MarkerMAG link -p Demo -r1 demo_R1.fasta -r2 demo_R2.fasta -marker demo_16S.fasta -mag demo_MAGs -x fa -t 12
 
 
+Nextflow implementation
+---
+
+An experimental [Nextflow DSL2](https://www.nextflow.io/) implementation is
+available in the [`nextflow`](nextflow) directory. It coordinates read
+preprocessing, 16S assembly or preparation, MAG–16S linking, and optional copy
+number estimation as reproducible processes.
+
+The workflow has three per-sample entry points:
+
+1. If `16s_fasta` is supplied, the sequences are clustered with `uclust_16s`,
+   polished with Barrnap, and passed to `MarkerMAG link`.
+2. If `16s_reads` is supplied, the MATAM extraction checkpoint is skipped and
+   those reads go directly to the MATAM assembly scatter.
+3. If both fields are empty, MATAM first extracts candidate 16S reads from
+   `r1` and `r2`.
+
+For the two assembly routes, each value in `--matam_pcts` is assembled as an
+independent Nextflow task, making the expensive assemblies suitable for
+parallel HPC submission. The assemblies are then combined, clustered,
+polished, and linked.
+
+### Requirements
+
++ Nextflow 23.10 or newer.
++ A MarkerMAG environment containing its command-line dependencies.
++ A licensed Usearch executable available on `PATH`.
++ MATAM and an indexed MATAM reference database when using the assembly route.
+
+The supplied environment can be created from the repository root:
+
+    conda env create -f nextflow/environment.yml
+    conda activate markermag
+
+### Samplesheet
+
+Pass a CSV file with `--input`. Relative paths are resolved from the directory
+where Nextflow is launched.
+
+| Column | Description |
+|:---|:---|
+| `sample` | Unique sample identifier |
+| `r1` | Forward reads in FASTA or FASTQ format |
+| `r2` | Reverse reads in the matching format |
+| `mag_dir` | Directory containing the sample's MAG files |
+| `mag_ext` | MAG filename extension without the leading dot, such as `fa` |
+| `16s_reads` | Optional reads already extracted as candidate 16S reads; bypasses MATAM filtering |
+| `16s_fasta` | Optional prepared 16S FASTA; leave empty to run MATAM |
+
+See [`nextflow/assets/samplesheet.csv`](nextflow/assets/samplesheet.csv) for a
+template containing examples of all three checkpoints. If both optional fields
+are populated, `16s_fasta` takes precedence.
+
+### Run with supplied 16S sequences
+
+    cd nextflow
+    nextflow run main.nf \
+        -profile conda \
+        --input assets/samplesheet.csv \
+        --skip_matam \
+        --outdir results
+
+All samples must provide `16s_fasta` when `--skip_matam` is used.
+
+### Resume from extracted 16S reads
+
+Put the path to the interleaved, MATAM-compatible candidate reads in the
+`16s_reads` column and leave `16s_fasta` empty. The original `r1` and `r2`
+files are still required for the later MarkerMAG linking stage.
+
+    cd nextflow
+    nextflow run main.nf \
+        -profile conda \
+        --input assets/samplesheet.csv \
+        --matam_db /path/to/indexed/SILVA_138_SSURef_NR95 \
+        --matam_pcts 1,5,10,25,50,75,100 \
+        --outdir results
+
+This checkpoint bypasses `MATAM_FILTER`; the supplied reads enter
+`MATAM_ASSEMBLE` directly. A MATAM database is still required for assembly.
+
+### Assemble 16S sequences with MATAM
+
+    cd nextflow
+    nextflow run main.nf \
+        -profile conda \
+        --input assets/samplesheet.csv \
+        --matam_db /path/to/indexed/SILVA_138_SSURef_NR95 \
+        --matam_pcts 1,5,10,25,50,75,100 \
+        --matam_threads 8 \
+        --matam_mem_mb 30000 \
+        --outdir results
+
+`--matam_db` is the full prefix of an indexed MATAM database, not just its
+directory.
+
+### Execution profiles
+
+| Profile | Purpose |
+|:---|:---|
+| `standard` | Local execution using tools already on `PATH` |
+| `test` | Small local resources and the supplied synthetic test |
+| `hpc` | PBS Pro by default; edit [`conf/hpc.config`](nextflow/conf/hpc.config) for the local scheduler and queue |
+| `conda` | Run processes in the `markermag` Conda environment |
+| `docker` | Run with the local `markermag:latest` image |
+| `singularity` | Run from `docker://markermag:latest` |
+
+Profiles can be combined, for example `-profile conda,hpc`. Build the Docker
+image from the repository root:
+
+    docker build -f nextflow/Dockerfile -t markermag:latest .
+
+### Nextflow outputs
+
+Per-sample outputs are written beneath `--outdir/<sample>/`:
+
++ `uclust_16s/`: clustered 16S FASTA, Usearch `.uc` table, and membership table.
++ `polish_16s/`: Barrnap-polished 16S FASTA.
++ `link_16s/`: MarkerMAG linkage tables, logs, plots, and working outputs.
++ `get_cp_num/`: standalone copy-number outputs when enabled.
+
+The top-level `linkages_summary.tsv` maps each sample to its persistent
+genome-level linkage table.
+
+### Quick test
+
+The test generator creates a small deterministic dataset from the bundled SILVA
+reference:
+
+    cd nextflow
+    python test/generate_test_data.py
+    nextflow run main.nf \
+        -profile test,conda \
+        --input test/samplesheet.csv \
+        --outdir test/results
+
+The test follows the supplied-16S route and does not require a MATAM database.
+Nextflow runtime state is written to ignored paths and can be removed with
+`nextflow clean -f` after a run.
+
+
 Output files
 ---
 
@@ -134,4 +280,3 @@ Output files
  
    *If you saw error message from Tablet that says input files format can not be understood, 
    please refer to [here](https://github.com/cropgeeks/tablet/issues/15) for a potential solution.
-

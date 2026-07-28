@@ -1,0 +1,235 @@
+#!/usr/bin/env nextflow
+// DSL2 is the default in Nextflow >=22.03; the explicit enable line is not needed.
+
+// ── Subworkflows ───────────────────────────────────────────────────────────────
+include { ASSEMBLE_16S   } from './subworkflows/local/assemble_16s'
+include { MARKERMAG_CORE } from './subworkflows/local/markermag_core'
+
+// ── Standalone modules (used in direct paths) ──────────────────────────────────
+include { RENAME_READS } from './modules/local/rename_reads/main'
+include { UCLUST_16S   } from './modules/local/uclust_16s/main'
+include { POLISH_16S   } from './modules/local/polish_16s/main'
+
+// ──────────────────────────────────────────────────────────────────────────────
+// Help
+// ──────────────────────────────────────────────────────────────────────────────
+def help_message() {
+    log.info """
+    ╔══════════════════════════════════════════════════════════════════════════╗
+    ║                           M a r k e r M A G                            ║
+    ║        Link MAGs to 16S rRNA marker genes via paired-end reads          ║
+    ╚══════════════════════════════════════════════════════════════════════════╝
+
+    Usage:
+        nextflow run main.nf [options]
+
+    ── Input / output ────────────────────────────────────────────────────────────
+      --input          CSV samplesheet  [required]
+                       Columns: sample, r1, r2, mag_dir, mag_ext,
+                                16s_reads, 16s_fasta
+                       16s_fasta: use completed 16S sequences.
+                       16s_reads:  skip extraction and start at MATAM assembly.
+                       Leave both empty to extract 16S reads with MATAM.
+      --outdir         Output directory  [default: ${params.outdir}]
+
+    ── MATAM 16S assembly ────────────────────────────────────────────────────────
+      --matam_db       Full prefix path to indexed MATAM reference DB  [required
+                       for the 16s_reads and raw-read assembly routes]
+                       Build: index_default_ssu_rrna_db.py -d \$DBDIR
+      --matam_pcts     Subsample percentages, comma-separated           [default: ${params.matam_pcts}]
+                       Each value spawns an independent HPC job.
+      --matam_threads  CPUs per MATAM assembly job                      [default: ${params.matam_threads}]
+                       (tool default: 1; MATAM scales well to ~8–16)
+      --matam_mem_mb   Memory per MATAM assembly job (MB)               [default: ${params.matam_mem_mb}]
+                       (tool default: 10000; also sets --max_memory in MATAM)
+      --skip_matam     Disable MATAM; all samples must provide 16s_fasta [default: ${params.skip_matam}]
+
+    ── 16S QC ────────────────────────────────────────────────────────────────────
+      --cluster_iden   UCLUST identity threshold for 16S clustering     [default: ${params.cluster_iden}]
+                       (uclust_16s.py default: 1.0; matam_16s.py default: 0.999)
+      --min_16s_len    Minimum 16S length (bp) accepted for linking     [default: ${params.min_16s_len}]
+                       (tool default: 1200)
+
+    ── Linking (MarkerMAG link) ──────────────────────────────────────────────────
+      --min_link       Min paired-end linkages to report a MAG–16S hit  [default: ${params.min_link}]
+                       (tool default: 9)
+      --max_16s_div    Max genetic divergence (%) between linked 16S     [default: ${params.max_16s_div}]
+                       (tool default: 1)
+      --mismatch       Max mismatch (%) in read-to-16S alignments        [default: ${params.mismatch}]
+                       (tool default: 2)
+      --aln_len        Min read alignment length (bp)                    [default: ${params.aln_len}]
+                       (tool default: 45)
+      --aln_pct        Min read alignment percentage (%)                 [default: ${params.aln_pct}]
+                       (tool default: 35)
+
+    ── Copy number estimation ────────────────────────────────────────────────────
+      --skip_cp_num    Skip copy number estimation inside LINK_16S       [default: ${params.skip_cp_num}]
+      --subsample_pct  % of reads used for MAG coverage estimation       [default: ${params.subsample_pct}]
+                       (tool default: 25)
+
+    ── Preprocessing ─────────────────────────────────────────────────────────────
+      --rename_reads   Rename reads to MarkerMAG format before analysis  [default: ${params.rename_reads}]
+
+    ── Resource ceilings ─────────────────────────────────────────────────────────
+      --max_cpus       Maximum CPUs per process                          [default: ${params.max_cpus}]
+      --max_memory     Maximum memory per process                        [default: ${params.max_memory}]
+      --max_time       Maximum wall time per process                     [default: ${params.max_time}]
+
+    ── Profiles ──────────────────────────────────────────────────────────────────
+      -profile standard      Local execution (default)
+      -profile hpc           HPC scheduler (PBS/SLURM — edit conf/hpc.config)
+      -profile docker        Docker container
+      -profile singularity   Singularity container
+      -profile conda         Conda environment
+
+    Example:
+        nextflow run main.nf \\
+            -profile singularity,hpc \\
+            --input assets/samplesheet.csv \\
+            --matam_db /path/to/SILVA_138_SSURef_NR95 \\
+            --matam_threads 12 \\
+            --outdir results
+    """.stripIndent()
+}
+
+// ──────────────────────────────────────────────────────────────────────────────
+// Parameter validation
+// ──────────────────────────────────────────────────────────────────────────────
+def validate_params() {
+    if ( !params.input ) {
+        error "ERROR: --input samplesheet is required.\n" +
+              "Example: --input assets/samplesheet.csv"
+    }
+}
+
+// ──────────────────────────────────────────────────────────────────────────────
+// Helper: parse samplesheet row → channel tuple
+// ──────────────────────────────────────────────────────────────────────────────
+def parse_samplesheet_row(row) {
+    def meta = [ id: row.sample ]
+
+    def r1        = file(row.r1,      checkIfExists: true)
+    def r2        = file(row.r2,      checkIfExists: true)
+    def mag_dir   = file(row.mag_dir, checkIfExists: true)
+    def mag_ext   = row.mag_ext ?: 'fa'
+    def reads_16s = row['16s_reads'] ? file(row['16s_reads'], checkIfExists: true) : []
+    def seqs_16s  = row['16s_fasta'] ? file(row['16s_fasta'], checkIfExists: true) : []
+
+    if ( seqs_16s == [] ) {
+        if ( params.skip_matam ) {
+            error "ERROR: Sample '${meta.id}' must provide 16s_fasta when --skip_matam is set."
+        }
+        if ( !params.matam_db ) {
+            error "ERROR: Sample '${meta.id}' requires MATAM assembly, but --matam_db was not provided."
+        }
+    }
+
+    return tuple(meta, r1, r2, mag_dir, mag_ext, reads_16s, seqs_16s)
+}
+
+// ──────────────────────────────────────────────────────────────────────────────
+// Main workflow
+// ──────────────────────────────────────────────────────────────────────────────
+workflow {
+
+    if ( params.help ) {
+        help_message()
+        exit 0
+    }
+
+    validate_params()
+
+    // ── Samplesheet → channel ────────────────────────────────────────────────
+    ch_raw = Channel
+        .fromPath(params.input, checkIfExists: true)
+        .splitCsv(header: true, strip: true)
+        .map { row -> parse_samplesheet_row(row) }
+
+    // ── Optional read renaming ────────────────────────────────────────────────
+    if ( params.rename_reads ) {
+        RENAME_READS (
+            ch_raw.map { meta, r1, r2, mag_dir, mag_ext, reads_16s, s16 ->
+                tuple(meta, r1, r2)
+            }
+        )
+        ch_reads_renamed = RENAME_READS.out.reads
+            .join(
+                ch_raw.map { meta, r1, r2, mag_dir, mag_ext, reads_16s, s16 ->
+                    tuple(meta, mag_dir, mag_ext, reads_16s, s16)
+                },
+                by: 0
+            )
+            .map { meta, r1, r2, mag_dir, mag_ext, reads_16s, s16 ->
+                tuple(meta, r1, r2, mag_dir, mag_ext, reads_16s, s16)
+            }
+    } else {
+        ch_reads_renamed = ch_raw
+    }
+
+    // ── Branch: completed 16S, extracted 16S reads, or raw reads ─────────────
+    ch_reads_renamed.branch {
+            meta, r1, r2, mag_dir, mag_ext, reads_16s, s16 ->
+        has_16s:              s16 != []
+        has_extracted_reads:  reads_16s != []
+        needs_matam_filter:   true
+    }.set { ch_branched }
+
+    // ── Path A: user provided 16S ─────────────────────────────────────────────
+    // Cluster and polish the provided sequences before linking.
+    UCLUST_16S (
+        ch_branched.has_16s.map { meta, r1, r2, mag_dir, mag_ext, reads_16s, s16 ->
+            tuple(meta, s16)
+        },
+        params.cluster_iden
+    )
+    POLISH_16S ( UCLUST_16S.out.clustered )
+
+    ch_provided_16s_ready = POLISH_16S.out.polished
+
+    // ── Path B: run MATAM 16S assembly ──────────────────────────────────────
+    if ( !params.skip_matam && params.matam_db ) {
+        ch_db_dir  = Channel.value( file(params.matam_db).parent )
+        ch_db_name = Channel.value( file(params.matam_db).name   )
+
+        ASSEMBLE_16S (
+            ch_branched.needs_matam_filter.map {
+                    meta, r1, r2, mag_dir, mag_ext, reads_16s, s16 ->
+                tuple(meta, r1, r2)
+            },
+            ch_branched.has_extracted_reads.map {
+                    meta, r1, r2, mag_dir, mag_ext, reads_16s, s16 ->
+                tuple(meta, reads_16s)
+            },
+            ch_db_dir,
+            ch_db_name
+        )
+
+        ch_matam_16s_ready = ASSEMBLE_16S.out.seqs_16s
+    } else {
+        ch_matam_16s_ready = Channel.empty()
+    }
+
+    // ── Merge both paths into a single 16S channel ──────────────────────────
+    ch_16s_ready = ch_provided_16s_ready.mix( ch_matam_16s_ready )
+
+    // ── Reconstruct full sample tuples for MARKERMAG_CORE ───────────────────
+    ch_samples_for_link = ch_reads_renamed
+        .map { meta, r1, r2, mag_dir, mag_ext, reads_16s, s16 ->
+            tuple(meta, r1, r2, mag_dir, mag_ext)
+        }
+        .join( ch_16s_ready, by: 0 )
+        .map { meta, r1, r2, mag_dir, mag_ext, marker ->
+            tuple(meta, r1, r2, mag_dir, mag_ext, marker)
+        }
+
+    // ── Core analysis ────────────────────────────────────────────────────────
+    MARKERMAG_CORE ( ch_samples_for_link )
+
+    // ── Summary reporting ────────────────────────────────────────────────────
+    MARKERMAG_CORE.out.linkages_gnm
+        .map { meta, f ->
+            "${meta.id}\t${params.outdir}/${meta.id}/link_16s/${meta.id}_MarkerMAG_wd/${f.name}"
+        }
+        .collectFile(name: 'linkages_summary.tsv', newLine: true,
+                     storeDir: "${params.outdir}")
+}
