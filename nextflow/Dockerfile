@@ -11,7 +11,7 @@ COPY bin/MarkerMAG /opt/markermag/bin/MarkerMAG
 COPY MarkerMAG /opt/markermag/MarkerMAG
 COPY nextflow/environment.yml /opt/markermag/nextflow/environment.yml
 
-# environment.yml installs the local package in editable mode from "..".
+# environment.yml installs the commit-pinned MarkerMAG-nf package.
 WORKDIR /opt/markermag/nextflow
 RUN conda env update -n base --file environment.yml \
     && conda clean -afy

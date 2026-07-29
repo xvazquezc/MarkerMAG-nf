@@ -30,9 +30,8 @@ dependencies:
   # MATAM + SortMeRNA — required for the 16S assembly path
   - matam=1.6.0
 
-  # MarkerMAG Python package — installed from the local repo so that
-  # new subcommands (polish_16s, etc.) and the nextflow/bin/ wrappers
-  # that import MarkerMAG internals are always in sync with the source.
-  # Run from anywhere:  conda env create -f nextflow/environment.yml
+  # MarkerMAG Python package — pinned to a known working repository commit.
+  # This keeps Nextflow-created environments reproducible and avoids relying
+  # on the directory from which `conda env create` is invoked.
   - pip:
-    - -e ..
+    - git+https://github.com/xvazquezc/MarkerMAG-nf.git@6009b7bde55b641171adbbabb9f80053adc12722
