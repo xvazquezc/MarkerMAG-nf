@@ -9,6 +9,7 @@ dist/
 
 # Nextflow runtime state and generated results
 .nextflow/
+nextflow/.conda/
 nextflow/.nextflow.log*
 nextflow/work/
 nextflow/barrnap.bed
