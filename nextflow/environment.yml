@@ -1,4 +1,4 @@
-name: markermag
+name: markermag-nf
 channels:
   - conda-forge
   - bioconda

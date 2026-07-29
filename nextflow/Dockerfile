@@ -13,8 +13,10 @@ COPY nextflow/environment.yml /opt/markermag/nextflow/environment.yml
 
 # environment.yml installs the commit-pinned MarkerMAG-nf package.
 WORKDIR /opt/markermag/nextflow
-RUN conda env update -n base --file environment.yml \
+RUN conda env create --file environment.yml \
     && conda clean -afy
+
+ENV PATH="/opt/conda/envs/markermag-nf/bin:${PATH}"
 
 # ── NOTE: usearch is not freely redistributable.  ────────────────────────────
 # Mount your licensed binary at runtime:
