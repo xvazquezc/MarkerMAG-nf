@@ -85,6 +85,8 @@ def help_message() {
       -profile docker        Docker container
       -profile singularity   Singularity container
       -profile conda         Conda environment
+      --conda_cache_dir      Shared Conda environment cache
+                             [default: ${params.conda_cache_dir}]
 
     Example:
         nextflow run main.nf \\
