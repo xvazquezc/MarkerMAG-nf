@@ -31,6 +31,10 @@ def help_message() {
                        16s_reads:  skip extraction and start at MATAM assembly.
                        Leave both empty to extract 16S reads with MATAM.
       --outdir         Output directory  [default: ${params.outdir}]
+      --reconstruct_only
+                       Stop after 16S clustering and polishing; skip MAG linking.
+                       MAGs are optional, and r1/r2 are only required when
+                       neither 16s_reads nor 16s_fasta is supplied.
 
     ── MATAM 16S assembly ────────────────────────────────────────────────────────
       --matam_db       Full prefix path to indexed MATAM reference DB  [required
@@ -108,12 +112,25 @@ def validate_params() {
 def parse_samplesheet_row(row) {
     def meta = [ id: row.sample ]
 
-    def r1        = file(row.r1,      checkIfExists: true)
-    def r2        = file(row.r2,      checkIfExists: true)
-    def mag_dir   = file(row.mag_dir, checkIfExists: true)
+    def r1        = row.r1      ? file(row.r1,      checkIfExists: true) : []
+    def r2        = row.r2      ? file(row.r2,      checkIfExists: true) : []
+    def mag_dir   = row.mag_dir ? file(row.mag_dir, checkIfExists: true) : []
     def mag_ext   = row.mag_ext ?: 'fa'
     def reads_16s = row['16s_reads'] ? file(row['16s_reads'], checkIfExists: true) : []
     def seqs_16s  = row['16s_fasta'] ? file(row['16s_fasta'], checkIfExists: true) : []
+
+    if ( (r1 == []) != (r2 == []) ) {
+        error "ERROR: Sample '${meta.id}' must provide both r1 and r2, or neither."
+    }
+
+    if ( !params.reconstruct_only ) {
+        if ( r1 == [] || r2 == [] ) {
+            error "ERROR: Sample '${meta.id}' must provide r1 and r2 for MAG–16S linking."
+        }
+        if ( mag_dir == [] ) {
+            error "ERROR: Sample '${meta.id}' must provide mag_dir for MAG–16S linking."
+        }
+    }
 
     if ( seqs_16s == [] ) {
         if ( params.skip_matam ) {
@@ -122,6 +139,10 @@ def parse_samplesheet_row(row) {
         if ( !params.matam_db ) {
             error "ERROR: Sample '${meta.id}' requires MATAM assembly, but --matam_db was not provided."
         }
+    }
+
+    if ( seqs_16s == [] && reads_16s == [] && (r1 == [] || r2 == []) ) {
+        error "ERROR: Sample '${meta.id}' must provide r1 and r2 when MATAM extraction is required."
     }
 
     return tuple(meta, r1, r2, mag_dir, mag_ext, reads_16s, seqs_16s)
@@ -147,14 +168,22 @@ workflow {
 
     // ── Optional read renaming ────────────────────────────────────────────────
     if ( params.rename_reads ) {
+        ch_raw.branch {
+                meta, r1, r2, mag_dir, mag_ext, reads_16s, s16 ->
+            with_paired_reads:     r1 != [] && r2 != []
+            without_paired_reads:  true
+        }.set { ch_rename_branched }
+
         RENAME_READS (
-            ch_raw.map { meta, r1, r2, mag_dir, mag_ext, reads_16s, s16 ->
+            ch_rename_branched.with_paired_reads.map {
+                    meta, r1, r2, mag_dir, mag_ext, reads_16s, s16 ->
                 tuple(meta, r1, r2)
             }
         )
-        ch_reads_renamed = RENAME_READS.out.reads
+        ch_reads_renamed_with_pairs = RENAME_READS.out.reads
             .join(
-                ch_raw.map { meta, r1, r2, mag_dir, mag_ext, reads_16s, s16 ->
+                ch_rename_branched.with_paired_reads.map {
+                        meta, r1, r2, mag_dir, mag_ext, reads_16s, s16 ->
                     tuple(meta, mag_dir, mag_ext, reads_16s, s16)
                 },
                 by: 0
@@ -162,6 +191,10 @@ workflow {
             .map { meta, r1, r2, mag_dir, mag_ext, reads_16s, s16 ->
                 tuple(meta, r1, r2, mag_dir, mag_ext, reads_16s, s16)
             }
+
+        ch_reads_renamed = ch_reads_renamed_with_pairs.mix(
+            ch_rename_branched.without_paired_reads
+        )
     } else {
         ch_reads_renamed = ch_raw
     }
@@ -212,24 +245,26 @@ workflow {
     // ── Merge both paths into a single 16S channel ──────────────────────────
     ch_16s_ready = ch_provided_16s_ready.mix( ch_matam_16s_ready )
 
-    // ── Reconstruct full sample tuples for MARKERMAG_CORE ───────────────────
-    ch_samples_for_link = ch_reads_renamed
-        .map { meta, r1, r2, mag_dir, mag_ext, reads_16s, s16 ->
-            tuple(meta, r1, r2, mag_dir, mag_ext)
-        }
-        .join( ch_16s_ready, by: 0 )
-        .map { meta, r1, r2, mag_dir, mag_ext, marker ->
-            tuple(meta, r1, r2, mag_dir, mag_ext, marker)
-        }
+    if ( !params.reconstruct_only ) {
+        // ── Reconstruct full sample tuples for MARKERMAG_CORE ───────────────
+        ch_samples_for_link = ch_reads_renamed
+            .map { meta, r1, r2, mag_dir, mag_ext, reads_16s, s16 ->
+                tuple(meta, r1, r2, mag_dir, mag_ext)
+            }
+            .join( ch_16s_ready, by: 0 )
+            .map { meta, r1, r2, mag_dir, mag_ext, marker ->
+                tuple(meta, r1, r2, mag_dir, mag_ext, marker)
+            }
 
-    // ── Core analysis ────────────────────────────────────────────────────────
-    MARKERMAG_CORE ( ch_samples_for_link )
+        // ── Core analysis ────────────────────────────────────────────────────
+        MARKERMAG_CORE ( ch_samples_for_link )
 
-    // ── Summary reporting ────────────────────────────────────────────────────
-    MARKERMAG_CORE.out.linkages_gnm
-        .map { meta, f ->
-            "${meta.id}\t${params.outdir}/${meta.id}/link_16s/${meta.id}_MarkerMAG_wd/${f.name}"
-        }
-        .collectFile(name: 'linkages_summary.tsv', newLine: true,
-                     storeDir: "${params.outdir}")
+        // ── Summary reporting ────────────────────────────────────────────────
+        MARKERMAG_CORE.out.linkages_gnm
+            .map { meta, f ->
+                "${meta.id}\t${params.outdir}/${meta.id}/link_16s/${meta.id}_MarkerMAG_wd/${f.name}"
+            }
+            .collectFile(name: 'linkages_summary.tsv', newLine: true,
+                         storeDir: "${params.outdir}")
+    }
 }
