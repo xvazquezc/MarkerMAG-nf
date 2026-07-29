@@ -5,7 +5,7 @@
 # Usage (from repo root or nextflow/):
 #   bash nextflow/test/download_demo_data.sh
 #
-# Requires: curl or wget, unzip, seqtk (in the markermag conda env)
+# Requires: curl or wget, unzip, seqtk (in the markermag-nf Conda environment)
 # Output:   nextflow/test/data/{demo_16S.fasta, mags/, test_R1.fasta, test_R2.fasta}
 #           nextflow/test/samplesheet.csv (overwritten)
 
@@ -67,5 +67,5 @@ echo "  R2:   ${DATA_DIR}/test_R2.fasta  (${N_READS} reads)"
 echo ""
 echo "Run the test with:"
 echo "  cd nextflow"
-echo "  PATH=/path/to/markermag/env/bin:\$PATH nextflow run main.nf \\"
+echo "  PATH=/path/to/conda/envs/markermag-nf/bin:\$PATH nextflow run main.nf \\"
 echo "    -profile test --input test/samplesheet.csv --outdir test/results"
