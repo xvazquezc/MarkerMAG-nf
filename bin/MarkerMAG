@@ -236,30 +236,3 @@ if __name__ == '__main__':
     else:
         print('Unrecognized command: %s, program exited' % sys.argv[1])
         exit()
-
-
-upload_to_pypi_cmd = '''
-
-conda deactivate      
-cd /Users/songweizhi/PycharmProjects/MarkerMAG
-rm -r build dist MarkerMAG.egg-info
-#python3 setup.py sdist bdist_wheel
-/usr/local/bin/python3.6 setup.py sdist bdist_wheel
-twine upload dist/* --verbose
-
-songweizhi
-shan88
-
-pip3 install --upgrade MarkerMAG
-'''
-
-
-'''
-To-do:
-1. insert size is important
-2. check duplicate sequences in input files
-3. ignore reads with two continuous mismatch  56=2x55=
-4. no mismatch in clipping reads?
-5. put vis at the final step
-6. if all MAGs are linked
-'''

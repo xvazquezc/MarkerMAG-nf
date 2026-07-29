@@ -2,6 +2,10 @@
 .vscode/
 __pycache__/
 *.py[cod]
+.DS_Store
+build/
+dist/
+*.egg-info/
 
 # Nextflow runtime state and generated results
 .nextflow/
