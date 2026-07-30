@@ -14,5 +14,9 @@ process COMBINE_MATAM {
     script:
     """
     cat ${assemblies} > ${meta.id}_assembled_16S_combined.fasta
+    if [[ ! -s ${meta.id}_assembled_16S_combined.fasta ]]; then
+        echo "ERROR: MATAM produced no 16S assemblies for sample ${meta.id} at any requested depth." >&2
+        exit 1
+    fi
     """
 }

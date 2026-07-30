@@ -4,8 +4,8 @@
 // Nextflow process (separate HPC job), directly solving the CPU-efficiency
 // problem of the original sequential loop in matam_16s.py.
 //
-// Output is declared optional because low subsampling depths may yield no
-// scaffolds; the missing file causes a silent skip rather than a job failure.
+// The wrapper always emits one per-depth FASTA. It is empty when the selected
+// subset has no reads or MATAM succeeds without producing scaffolds.
 
 process MATAM_ASSEMBLE {
     tag   "${meta.id}:pct${pct}"
@@ -17,8 +17,8 @@ process MATAM_ASSEMBLE {
     val   matam_db_name
 
     output:
-    tuple val(meta), path("${meta.id}_subsample_${pct}_scaffolds.fasta"),
-          optional: true, emit: assembly
+    tuple val(meta), path("${meta.id}_subsample_*_scaffolds.fasta"),
+          emit: assembly
 
     script:
     """
