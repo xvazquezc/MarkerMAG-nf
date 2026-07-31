@@ -8,8 +8,7 @@
 // Inputs:
 //   ch_reads            : [meta, r1, r2] for MATAM extraction
 //   ch_extracted_reads  : [meta, reads_16s] that bypass extraction
-//   ch_db_dir           : value channel — path to parent dir of MATAM DB files
-//   ch_db_name          : value channel — basename of the MATAM DB prefix
+//   ch_matam_db         : value channel — absolute MATAM DB prefix
 //
 // Emits:
 //   seqs_16s    : [meta, polished_fasta]
@@ -25,8 +24,7 @@ workflow ASSEMBLE_16S {
     take:
     ch_reads            // [meta, r1, r2]
     ch_extracted_reads  // [meta, reads_16s]
-    ch_db_dir           // value: path to DB parent directory
-    ch_db_name          // value: DB basename
+    ch_matam_db         // value: absolute MATAM DB prefix
 
     main:
     def pct_list = params.matam_pcts
@@ -38,7 +36,7 @@ workflow ASSEMBLE_16S {
     // Extract 16S reads once for raw-read samples, then merge the result with
     // samples that entered at the extracted-reads checkpoint.
     //
-    MATAM_FILTER ( ch_reads, ch_db_dir, ch_db_name )
+    MATAM_FILTER ( ch_reads, ch_matam_db )
     ch_reads_16s = MATAM_FILTER.out.reads_16s.mix( ch_extracted_reads )
 
     //
@@ -51,7 +49,7 @@ workflow ASSEMBLE_16S {
             pct_list.collect { pct -> tuple(meta, pct, reads) }
         }
 
-    MATAM_ASSEMBLE ( ch_pct_inputs, ch_db_dir, ch_db_name )
+    MATAM_ASSEMBLE ( ch_pct_inputs, ch_matam_db )
 
     //
     // Collect all pct assemblies per sample, then concatenate

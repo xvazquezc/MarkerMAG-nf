@@ -13,8 +13,7 @@ process MATAM_ASSEMBLE {
 
     input:
     tuple val(meta), val(pct), path(reads_16s)
-    path  matam_db_dir
-    val   matam_db_name
+    val   matam_db              // absolute MATAM DB prefix on shared storage
 
     output:
     tuple val(meta), path("${meta.id}_subsample_*_scaffolds.fasta"),
@@ -26,7 +25,7 @@ process MATAM_ASSEMBLE {
         --reads_16s ${reads_16s}                    \\
         --pct       ${pct}                           \\
         --prefix    ${meta.id}                       \\
-        --matam_db  ${matam_db_dir}/${matam_db_name} \\
+        --matam_db  '${matam_db}'                      \\
         --cpu       ${task.cpus}                     \\
         --mem_mb    ${params.matam_mem_mb}
     """

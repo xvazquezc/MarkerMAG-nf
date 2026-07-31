@@ -37,7 +37,7 @@ def help_message() {
                        neither 16s_reads nor 16s_fasta is supplied.
 
     ── MATAM 16S assembly ────────────────────────────────────────────────────────
-      --matam_db       Full prefix path to indexed MATAM reference DB  [required
+      --matam_db       Indexed MATAM DB directory or full prefix       [required
                        for the 16s_reads and raw-read assembly routes]
                        Build: index_default_ssu_rrna_db.py -d \$DBDIR
       --matam_pcts     Subsample percentages, comma-separated           [default: ${params.matam_pcts}]
@@ -106,6 +106,36 @@ def validate_params() {
         error "ERROR: --input samplesheet is required.\n" +
               "Example: --input assets/samplesheet.csv"
     }
+}
+
+// Resolve either a MATAM database directory or an explicit database prefix.
+def resolve_matam_db_prefix(db_arg) {
+    def db_path = file(db_arg).toAbsolutePath()
+
+    if ( db_path.toFile().isDirectory() ) {
+        def clustered_fastas = db_path.toFile().listFiles()
+            .findAll { it.isFile() && it.name.endsWith(".clustered.fasta") }
+            .sort { it.name }
+
+        if ( clustered_fastas.size() == 0 ) {
+            error "ERROR: No *.clustered.fasta MATAM database found in: ${db_path}"
+        }
+        if ( clustered_fastas.size() > 1 ) {
+            def candidates = clustered_fastas.collect { it.name }.join(", ")
+            error "ERROR: Multiple MATAM databases found in ${db_path}: ${candidates}. " +
+                  "Provide the full prefix for the intended database."
+        }
+
+        return clustered_fastas[0].absolutePath
+            .replaceFirst(/\.clustered\.fasta$/, "")
+    }
+
+    def prefix = db_path.toString()
+    def clustered_fasta = file("${prefix}.clustered.fasta")
+    if ( !clustered_fasta.toFile().isFile() ) {
+        error "ERROR: MATAM database file not found: ${clustered_fasta}"
+    }
+    return prefix
 }
 
 // ──────────────────────────────────────────────────────────────────────────────
@@ -223,9 +253,9 @@ workflow {
 
     // ── Path B: run MATAM 16S assembly ──────────────────────────────────────
     if ( !params.skip_matam && params.matam_db ) {
-        ch_db_dir  = Channel.value( file(params.matam_db).parent )
-        ch_db_name = Channel.value( file(params.matam_db).name   )
-
+        // Discover the index prefix when a database directory is supplied,
+        // then pass its absolute value without staging or renaming it.
+        ch_matam_db = Channel.value(resolve_matam_db_prefix(params.matam_db))
         ASSEMBLE_16S (
             ch_branched.needs_matam_filter.map {
                     meta, r1, r2, mag_dir, mag_ext, reads_16s, s16 ->
@@ -235,8 +265,7 @@ workflow {
                     meta, r1, r2, mag_dir, mag_ext, reads_16s, s16 ->
                 tuple(meta, reads_16s)
             },
-            ch_db_dir,
-            ch_db_name
+            ch_matam_db
         )
 
         ch_matam_16s_ready = ASSEMBLE_16S.out.seqs_16s

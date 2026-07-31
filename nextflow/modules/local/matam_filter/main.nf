@@ -10,8 +10,7 @@ process MATAM_FILTER {
 
     input:
     tuple val(meta), path(r1), path(r2)
-    path  matam_db_dir          // parent directory containing the MATAM DB files
-    val   matam_db_name         // basename of the DB prefix (e.g. SILVA_128_SSURef_NR95)
+    val   matam_db              // absolute MATAM DB prefix on shared storage
 
     output:
     tuple val(meta), path("${meta.id}_16S_reads*"), emit: reads_16s
@@ -22,7 +21,7 @@ process MATAM_FILTER {
         --r1       ${r1}                           \\
         --r2       ${r2}                           \\
         --prefix   ${meta.id}                      \\
-        --matam_db ${matam_db_dir}/${matam_db_name} \\
+        --matam_db '${matam_db}'                    \\
         --cpu      ${task.cpus}                    \\
         --mem_mb   ${params.matam_mem_mb}
     """
