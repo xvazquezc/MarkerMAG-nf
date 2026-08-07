@@ -1,2 +1,2 @@
-sample,r1,r2,mag_dir,mag_ext,16s_reads,16s_fasta
-test,test/data/test_R1.fasta,test/data/test_R2.fasta,test/data/synthetic_mags,fa,,test/data/16s/test_16S.fasta
+sample,r1,r2,mag_dir,mag_ext,16s_reads,16s_reads_r1,16s_reads_r2,16s_fasta
+test,test/data/test_R1.fasta,test/data/test_R2.fasta,test/data/synthetic_mags,fa,,,,test/data/16s/test_16S.fasta

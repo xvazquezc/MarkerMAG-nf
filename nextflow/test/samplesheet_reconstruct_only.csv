@@ -1,0 +1,2 @@
+sample,r1,r2,mag_dir,mag_ext,16s_reads,16s_reads_r1,16s_reads_r2,16s_fasta
+test,,,,fa,,,,test/data/16s/test_16S.fasta

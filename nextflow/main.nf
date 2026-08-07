@@ -26,19 +26,21 @@ def help_message() {
     ── Input / output ────────────────────────────────────────────────────────────
       --input          CSV samplesheet  [required]
                        Columns: sample, r1, r2, mag_dir, mag_ext,
-                                16s_reads, 16s_fasta
+                                16s_reads, 16s_reads_r1, 16s_reads_r2,
+                                16s_fasta
                        16s_fasta: use completed 16S sequences.
-                       16s_reads:  skip extraction and start at MATAM assembly.
-                       Leave both empty to extract 16S reads with MATAM.
+                       16s_reads:  single-end extracted candidate reads.
+                       16s_reads_r1/r2: paired extracted candidate reads.
+                       Leave all extracted-read fields empty to run extraction.
       --outdir         Output directory  [default: ${params.outdir}]
       --reconstruct_only
                        Stop after 16S clustering and polishing; skip MAG linking.
                        MAGs are optional, and r1/r2 are only required when
-                       neither 16s_reads nor 16s_fasta is supplied.
+                       neither extracted 16S reads nor 16s_fasta is supplied.
 
     ── MATAM 16S assembly ────────────────────────────────────────────────────────
       --matam_db       Indexed MATAM DB directory or full prefix       [required
-                       for the 16s_reads and raw-read assembly routes]
+                       for extracted-read and raw-read assembly routes]
                        Build: index_default_ssu_rrna_db.py -d \$DBDIR
       --matam_pcts     Subsample percentages, comma-separated           [default: ${params.matam_pcts}]
                        Each value spawns an independent HPC job.
@@ -47,6 +49,9 @@ def help_message() {
       --matam_mem_mb   Memory per MATAM assembly job (MB)               [default: ${params.matam_mem_mb}]
                        (tool default: 10000; also sets --max_memory in MATAM)
       --skip_matam     Disable MATAM; all samples must provide 16s_fasta [default: ${params.skip_matam}]
+      --matam_executable
+                       MATAM fork executable                            [default:
+                       ${params.matam_executable}]
 
     ── 16S QC ────────────────────────────────────────────────────────────────────
       --cluster_iden   UCLUST identity threshold for 16S clustering     [default: ${params.cluster_iden}]
@@ -148,7 +153,24 @@ def parse_samplesheet_row(row) {
     def r2        = row.r2      ? file(row.r2,      checkIfExists: true) : []
     def mag_dir   = row.mag_dir ? file(row.mag_dir, checkIfExists: true) : []
     def mag_ext   = row.mag_ext ?: 'fa'
-    def reads_16s = row['16s_reads'] ? file(row['16s_reads'], checkIfExists: true) : []
+    def reads_16s_single = row['16s_reads']
+        ? file(row['16s_reads'], checkIfExists: true)
+        : []
+    def reads_16s_r1 = row['16s_reads_r1']
+        ? file(row['16s_reads_r1'], checkIfExists: true)
+        : []
+    def reads_16s_r2 = row['16s_reads_r2']
+        ? file(row['16s_reads_r2'], checkIfExists: true)
+        : []
+    if ( (reads_16s_r1 == []) != (reads_16s_r2 == []) ) {
+        error "ERROR: Sample '${meta.id}' must provide both 16s_reads_r1 and 16s_reads_r2, or neither."
+    }
+    if ( reads_16s_single != [] && reads_16s_r1 != [] ) {
+        error "ERROR: Sample '${meta.id}' cannot combine 16s_reads with 16s_reads_r1/16s_reads_r2."
+    }
+    def reads_16s = reads_16s_single != []
+        ? [reads_16s_single]
+        : (reads_16s_r1 != [] ? [reads_16s_r1, reads_16s_r2] : [])
     def seqs_16s  = row['16s_fasta'] ? file(row['16s_fasta'], checkIfExists: true) : []
 
     if ( (r1 == []) != (r2 == []) ) {
@@ -264,7 +286,13 @@ workflow {
             ch_branched.has_extracted_reads.map {
                     meta, r1, r2, mag_dir, mag_ext, reads_16s, s16 ->
                 tuple(meta, reads_16s)
-            },
+            }.filter { meta, reads -> reads.size() == 1 }
+             .map { meta, reads -> tuple(meta, reads[0]) },
+            ch_branched.has_extracted_reads.map {
+                    meta, r1, r2, mag_dir, mag_ext, reads_16s, s16 ->
+                tuple(meta, reads_16s)
+            }.filter { meta, reads -> reads.size() == 2 }
+             .map { meta, reads -> tuple(meta, reads[0], reads[1]) },
             ch_matam_db
         )
 

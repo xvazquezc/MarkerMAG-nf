@@ -31,7 +31,7 @@ import multiprocessing as mp
 from datetime import datetime
 import plotly.graph_objects as go
 from Bio.SeqRecord import SeqRecord
-from distutils.spawn import find_executable
+from shutil import which
 from MarkerMAG.MarkerMAG_config import config_dict
 
 
@@ -2494,7 +2494,7 @@ def link_16s(args, config_dict):
         program_list.append('hmmscan')
     not_detected_programs = []
     for needed_program in program_list:
-        if find_executable(needed_program) is None:
+        if which(needed_program) is None:
             not_detected_programs.append(needed_program)
 
     if not_detected_programs != []:

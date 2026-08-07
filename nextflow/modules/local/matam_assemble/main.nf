@@ -20,13 +20,17 @@ process MATAM_ASSEMBLE {
           emit: assembly
 
     script:
+    def reads_args = reads_16s instanceof List
+        ? "--forward ${reads_16s[0]} --reverse ${reads_16s[1]}"
+        : "--reads_16s ${reads_16s}"
     """
     markermag_matam_assemble_pct.py \\
-        --reads_16s ${reads_16s}                    \\
+        ${reads_args}                               \\
         --pct       ${pct}                           \\
         --prefix    ${meta.id}                       \\
         --matam_db  '${matam_db}'                      \\
         --cpu       ${task.cpus}                     \\
-        --mem_mb    ${params.matam_mem_mb}
+        --mem_mb    ${params.matam_mem_mb}            \\
+        --matam     '${params.matam_executable}'
     """
 }

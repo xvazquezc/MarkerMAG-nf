@@ -6,7 +6,6 @@ import shutil
 import argparse
 from Bio import SeqIO
 from datetime import datetime
-from distutils.spawn import find_executable
 
 
 polish_16s_usage = '''

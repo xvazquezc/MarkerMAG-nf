@@ -51,10 +51,10 @@ How to install
   Please note that you'll need to install [Usearch](https://www.drive5.com/usearch/) on your own as it's not available in Conda due to license issue.
 
       # install with 
-      conda create -n MarkerMAG_env -c bioconda MarkerMAG
+      conda create -n markermag-nf -c bioconda MarkerMAG
       
       # To activate the environment    
-      conda activate MarkerMAG_env
+      conda activate markermag-nf
       # MarkerMAG is ready for running now, type "MarkerMAG -h" for help
       
       # To leave the environment
@@ -115,9 +115,9 @@ The workflow has three per-sample entry points:
 
 1. If `16s_fasta` is supplied, the sequences are clustered with `uclust_16s`,
    polished with Barrnap, and passed to `MarkerMAG link`.
-2. If `16s_reads` is supplied, the MATAM extraction checkpoint is skipped and
-   those reads go directly to the MATAM assembly scatter.
-3. If both fields are empty, MATAM first extracts candidate 16S reads from
+2. If `16s_reads` or the `16s_reads_r1`/`16s_reads_r2` pair is
+   supplied, MATAM extraction is skipped and those reads enter assembly.
+3. If all optional 16S fields are empty, MATAM extracts candidate reads from
    `r1` and `r2`.
 
 For the two assembly routes, each value in `--matam_pcts` is assembled as an
@@ -128,14 +128,30 @@ polished, and linked.
 ### Requirements
 
 + Nextflow 23.10 or newer.
-+ A MarkerMAG environment containing its command-line dependencies.
++ Conda when using the `conda` execution profile, or a MarkerMAG environment
+  containing the command-line dependencies for the `standard` profile.
 + A licensed Usearch executable available on `PATH`.
 + MATAM and an indexed MATAM reference database when using the assembly route.
 
-The supplied environment can be created from the repository root:
+With `-profile conda`, Nextflow creates the single pinned environment from
+`nextflow/environment.yml` and reuses it automatically. The default cache is
+`nextflow/.conda`; on an HPC system, point it to durable shared storage:
+
+    nextflow run nextflow/main.nf \
+        -profile conda \
+        --conda_cache_dir /shared/project/nextflow/conda \
+        --input samplesheet.csv \
+        --outdir results
+
+`NXF_CONDA_CACHEDIR` can be used instead of `--conda_cache_dir`. The environment
+uses Python 3.14 and the runtime dependencies required by the updated
+[xvazquezc/matam](https://github.com/xvazquezc/matam) fork. Until that fork is
+published as a versioned Conda package, build it from source and provide its
+`bin/matam_assembly.py` with `--matam_executable`. The older Bioconda
+MATAM 1.6.2 package does not provide the separate paired-read interface.
 
     conda env create -f nextflow/environment.yml
-    conda activate markermag
+    conda activate markermag-nf
 
 ### Samplesheet
 
@@ -145,16 +161,18 @@ where Nextflow is launched.
 | Column | Description |
 |:---|:---|
 | `sample` | Unique sample identifier |
-| `r1` | Forward reads in FASTA or FASTQ format |
-| `r2` | Reverse reads in the matching format |
-| `mag_dir` | Directory containing the sample's MAG files |
+| `r1` | Forward reads; optional in `--reconstruct_only` mode when extracted 16S reads or `16s_fasta` are supplied |
+| `r2` | Reverse reads; required under the same conditions as `r1` |
+| `mag_dir` | Directory containing the sample's MAG files; optional in `--reconstruct_only` mode |
 | `mag_ext` | MAG filename extension without the leading dot, such as `fa` |
-| `16s_reads` | Optional reads already extracted as candidate 16S reads; bypasses MATAM filtering |
+| `16s_reads` | Optional genuinely single-end candidate 16S reads; never an interleaved pair |
+| `16s_reads_r1` | Optional forward candidate 16S reads; requires `16s_reads_r2` |
+| `16s_reads_r2` | Optional reverse candidate 16S reads; requires `16s_reads_r1` |
 | `16s_fasta` | Optional prepared 16S FASTA; leave empty to run MATAM |
 
 See [`nextflow/assets/samplesheet.csv`](nextflow/assets/samplesheet.csv) for a
-template containing examples of all three checkpoints. If both optional fields
-are populated, `16s_fasta` takes precedence.
+template containing examples of all three checkpoints. If optional reads and
+sequences are both populated, `16s_fasta` takes precedence.
 
 ### Run with supplied 16S sequences
 
@@ -167,10 +185,35 @@ are populated, `16s_fasta` takes precedence.
 
 All samples must provide `16s_fasta` when `--skip_matam` is used.
 
+### Reconstruct 16S sequences only
+
+Use `--reconstruct_only` to stop after 16S clustering and Barrnap polishing,
+without running MAG–16S linking or copy-number estimation:
+
+    cd nextflow
+    nextflow run main.nf \
+        -profile conda \
+        --reconstruct_only \
+        --input samplesheet.csv \
+        --matam_db /path/to/indexed/SILVA_138_SSURef_NR95 \
+        --outdir results
+
+Input requirements depend on the selected checkpoint:
+
++ With `16s_fasta`, `r1`, `r2`, and `mag_dir` may all be empty.
++ With `16s_reads` or `16s_reads_r1`/`16s_reads_r2`, `r1`, `r2`,
+  and `mag_dir` may all be empty, but `--matam_db` remains required.
++ With no optional 16S input, `r1` and `r2` are required for MATAM extraction;
+  `mag_dir` remains optional.
+
+The final sequences are written to
+`<outdir>/<sample>/polish_16s/<sample>_16S_polished.fasta`.
+
 ### Resume from extracted 16S reads
 
-Put the path to the interleaved, MATAM-compatible candidate reads in the
-`16s_reads` column and leave `16s_fasta` empty. The original `r1` and `r2`
+Put paired candidate reads in `16s_reads_r1` and `16s_reads_r2`, or
+put genuinely single-end candidate reads in `16s_reads`. Interleaved
+reads are not supported. Leave `16s_fasta` empty. The original `r1` and `r2`
 files are still required for the later MarkerMAG linking stage.
 
     cd nextflow
@@ -184,6 +227,8 @@ files are still required for the later MarkerMAG linking stage.
 This checkpoint bypasses `MATAM_FILTER`; the supplied reads enter
 `MATAM_ASSEMBLE` directly. A MATAM database is still required for assembly.
 
+Paired files are subsampled together by record position before each MATAM task.
+
 ### Assemble 16S sequences with MATAM
 
     cd nextflow
@@ -196,8 +241,13 @@ This checkpoint bypasses `MATAM_FILTER`; the supplied reads enter
         --matam_mem_mb 30000 \
         --outdir results
 
-`--matam_db` is the full prefix of an indexed MATAM database, not just its
-directory.
+`--matam_db` may be a directory containing exactly one `*.clustered.fasta`
+MATAM index, or the full database prefix when a directory contains multiple
+indexes. The resolved prefix is passed to MATAM as an absolute path and must
+be visible from every compute node.
+
+Use `--matam_executable /path/to/matam/bin/matam_assembly.py` to select
+the fork explicitly.
 
 ### Execution profiles
 
@@ -206,7 +256,7 @@ directory.
 | `standard` | Local execution using tools already on `PATH` |
 | `test` | Small local resources and the supplied synthetic test |
 | `hpc` | PBS Pro by default; edit [`conf/hpc.config`](nextflow/conf/hpc.config) for the local scheduler and queue |
-| `conda` | Run processes in the `markermag` Conda environment |
+| `conda` | Build or reuse the single pinned `environment.yml` environment |
 | `docker` | Run with the local `markermag:latest` image |
 | `singularity` | Run from `docker://markermag:latest` |
 

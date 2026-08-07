@@ -19,6 +19,7 @@
 
 import os
 import argparse
+import gzip
 from Bio import SeqIO
 import multiprocessing as mp
 
@@ -54,18 +55,22 @@ def rename_reads_worker(arg_list):
     file_format     = arg_list[3]
     read_strand     = arg_list[4]
 
-    file_out_handle = open(file_out, 'w')
-    read_index = 1
-    for read_record in SeqIO.parse(file_in, file_format):
-        if file_format == 'fasta':
-            file_out_handle.write('>%s_%s.%s\n' % (output_prefix, read_index, read_strand))
-            file_out_handle.write('%s\n' % read_record.seq)
-        if file_format == 'fastq':
-            read_record.id = '%s_%s.%s' % (output_prefix, read_index, read_strand)
-            read_record.description = ''
-            SeqIO.write(read_record, file_out_handle, file_format)
-        read_index += 1
-    file_out_handle.close()
+    input_opener = gzip.open if file_in.lower().endswith('.gz') else open
+    with input_opener(file_in, 'rt') as file_in_handle, \
+            open(file_out, 'w', encoding='utf-8') as file_out_handle:
+        read_index = 1
+        for read_record in SeqIO.parse(file_in_handle, file_format):
+            if file_format == 'fasta':
+                file_out_handle.write(
+                    '>%s_%s.%s\n' % (
+                        output_prefix, read_index, read_strand))
+                file_out_handle.write('%s\n' % read_record.seq)
+            if file_format == 'fastq':
+                read_record.id = '%s_%s.%s' % (
+                    output_prefix, read_index, read_strand)
+                read_record.description = ''
+                SeqIO.write(read_record, file_out_handle, file_format)
+            read_index += 1
 
 
 def rename_reads(args):
@@ -92,10 +97,8 @@ def rename_reads(args):
         print('%s detected, please remove your existing file or specify a different prefix' % output_file_r2)
         exit()
 
-    pool = mp.Pool(processes=num_threads)
-    pool.map(rename_reads_worker, [[reads_r1, output_file_r1, output_prefix, format_to_parse, 1], [reads_r2, output_file_r2, output_prefix, format_to_parse, 2]])
-    pool.close()
-    pool.join()
+    with mp.Pool(processes=num_threads) as pool:
+        pool.map(rename_reads_worker, [[reads_r1, output_file_r1, output_prefix, format_to_parse, 1], [reads_r2, output_file_r2, output_prefix, format_to_parse, 2]])
 
 
 if __name__ == '__main__':

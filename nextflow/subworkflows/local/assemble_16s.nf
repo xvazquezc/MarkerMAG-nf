@@ -7,7 +7,8 @@
 //
 // Inputs:
 //   ch_reads            : [meta, r1, r2] for MATAM extraction
-//   ch_extracted_reads  : [meta, reads_16s] that bypass extraction
+//   ch_extracted_single : [meta, reads_16s] for genuinely single-end reads
+//   ch_extracted_pairs  : [meta, reads_16s_r1, reads_16s_r2]
 //   ch_matam_db         : value channel — absolute MATAM DB prefix
 //
 // Emits:
@@ -23,7 +24,8 @@ workflow ASSEMBLE_16S {
 
     take:
     ch_reads            // [meta, r1, r2]
-    ch_extracted_reads  // [meta, reads_16s]
+    ch_extracted_single // [meta, reads_16s]
+    ch_extracted_pairs  // [meta, reads_16s_r1, reads_16s_r2]
     ch_matam_db         // value: absolute MATAM DB prefix
 
     main:
@@ -37,7 +39,15 @@ workflow ASSEMBLE_16S {
     // samples that entered at the extracted-reads checkpoint.
     //
     MATAM_FILTER ( ch_reads, ch_matam_db )
-    ch_reads_16s = MATAM_FILTER.out.reads_16s.mix( ch_extracted_reads )
+    ch_filtered_pairs = MATAM_FILTER.out.reads_16s.map {
+        meta, forward, reverse -> tuple(meta, [forward, reverse])
+    }
+    ch_checkpoint_pairs = ch_extracted_pairs.map {
+        meta, forward, reverse -> tuple(meta, [forward, reverse])
+    }
+    ch_reads_16s = ch_filtered_pairs
+        .mix(ch_checkpoint_pairs)
+        .mix(ch_extracted_single)
 
     //
     // Scatter: one MATAM_ASSEMBLE job per (sample × pct) combination.

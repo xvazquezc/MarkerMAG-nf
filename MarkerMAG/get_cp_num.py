@@ -28,10 +28,14 @@ import multiprocessing as mp
 from itertools import groupby
 from datetime import datetime
 from operator import itemgetter
-from distutils.spawn import find_executable
+from shutil import which
 import matplotlib as mpl
 mpl.use('Agg')
 import matplotlib.pyplot as plt
+from MarkerMAG.read_pairing import (
+    canonical_read_id,
+    sam_read_id_and_mate,
+)
 
 
 get_cp_num_usage = '''
@@ -566,9 +570,7 @@ def parse_sam16s_worker(argument_list):
                 ref_id = each_read_split[2]
                 if ref_id not in unlinked_refs_to_ignore:
                     cigar = each_read_split[5]
-                    read_id = each_read_split[0]
-                    read_id_base = '.'.join(read_id.split('.')[:-1])
-                    read_strand = read_id.split('.')[-1]
+                    read_id_base, read_strand = sam_read_id_and_mate(each_read_split)
                     ref_pos = int(each_read_split[3])
 
                     if current_read_base == '':
@@ -901,9 +903,7 @@ def keep_only_both_mapped_reads(sam_in, sam_out):
         for each_read in sorted_sam_opened:
             if not each_read.startswith('@'):
                 each_read_split = each_read.strip().split('\t')
-                read_id = each_read_split[0]
-                read_id_base = '.'.join(read_id.split('.')[:-1])
-                read_strand = read_id.split('.')[-1]
+                read_id_base, read_strand = sam_read_id_and_mate(each_read_split)
 
                 if read_id_base not in mapping_dic:
                     mapping_dic[read_id_base] = {read_strand}
@@ -1103,9 +1103,7 @@ def filter_sam_file(splitted_sam_mp_file_set, min_insert_size_16s, both_pair_map
                 pwd_sam_file_filtered_handle.write(each_line)
             else:
                 each_line_split = each_line.strip().split('\t')
-                read_id = each_line_split[0]
-                read_base = read_id[:-2]
-                read_strand = read_id[-1]
+                read_base, read_strand = sam_read_id_and_mate(each_line_split)
                 ref_id = each_line_split[2]
                 if read_base in MappingRecord_dict:
 
@@ -1910,7 +1908,7 @@ def get_16s_copy_num(args):
     program_list = ['makeblastdb', 'blastn', 'bowtie2-build', 'bowtie2', 'samtools', 'seqtk', 'hmmscan']
     not_detected_programs = []
     for needed_program in program_list:
-        if find_executable(needed_program) is None:
+        if which(needed_program) is None:
             not_detected_programs.append(needed_program)
 
     if not_detected_programs != []:
@@ -1941,7 +1939,7 @@ def get_16s_copy_num(args):
             print('No MAG files or combined prefixed MAG file provided, program exited')
             exit()
 
-        if find_executable('barrnap') is None:
+        if which('barrnap') is None:
             print('barrnap not found, program exited!' )
             exit()
 
