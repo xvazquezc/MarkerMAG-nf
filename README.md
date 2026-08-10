@@ -46,40 +46,35 @@ How to install
 + MarkerMAG is implemented in [python3](https://www.python.org), 
   It has been tested on Linux and MacOS, but NOT on Windows.
 
-+ A Conda package that automatically installs MarkerMAG's third-party dependencies (except [Usearch](https://www.drive5.com/usearch/) :warning:) is now available. 
-  Please note that you'll need to install [Usearch](https://www.drive5.com/usearch/) on your own as it's not available in Conda due to license issue.
+Download the repository of MarkerMAG-nf and MATAM (from the [xvazquezc's fork](https://github.com/xvazquezc/matam)):
 
-      # install with 
-      conda create -n markermag-nf -c bioconda MarkerMAG
-      
-      # To activate the environment    
-      conda activate markermag-nf
-      # MarkerMAG is ready for running now, type "MarkerMAG -h" for help
-      
-      # To leave the environment
-      conda deactivate
+```bash
+git clone https://github.com/xvazquezc/MarkerMAG-nf
+git clone --recursive https://github.com/xvazquezc/matam
+```
 
-+ It can also be installed with pip. Software dependencies need to be in your system path in this case. 
-  Dependencies for the `link` module include 
-  [BLAST+](https://blast.ncbi.nlm.nih.gov/Blast.cgi?PAGE_TYPE=BlastDocs&DOC_TYPE=Download), 
-  [Barrnap](https://github.com/tseemann/barrnap), 
-  [seqtk](https://github.com/lh3/seqtk), 
-  [Bowtie2](http://bowtie-bio.sourceforge.net/bowtie2/index.shtml), 
-  [Samtools](http://www.htslib.org), 
-  [HMMER](http://hmmer.org), 
-  [metaSPAdes](https://cab.spbu.ru/software/meta-spades/) and 
-  [Usearch](https://www.drive5.com/usearch/).
-  Dependencies for the supplementary modules are provided in their corresponding manual page.
-  
-      # install with 
-      pip3 install MarkerMAG
-        
-      # upgrade with 
-      pip3 install --upgrade MarkerMAG
+Install MarkerMAG-nf conda environment (it'll also install MATAM's deps):
+```bash
+cd MarkerMAG-nf
+conda env create --file nextflow/environment.yaml
+conda activate markermag-nf
+cd ../matam
+./build
+```
 
-+ [Here](doc/README_example_cmds.md) are some example commands for UNSW Katana users.
+Finally, to be sure MATAM's binaries are reachable whenever we load the repo (be sure you are still within MarkerMAG-nf environment and within your cloned MATAM repo to make it easier):
+```bash
+cat <<EOF >${CONDA_PREFIX}/etc/conda/activate.d/activate-matam.sh
+export _OLD_PATH="\$PATH"
+export PATH="$(pwd)/bin:\$PATH"
+EOF
 
-+ :warning: If you clone the repository directly off GitHub you might end up with a version that is still under development.
+cat <<EOF >${CONDA_PREFIX}/etc/conda/deactivate.d/deactivate-matam.sh
+export PATH=\$( echo "\$_OLD_PATH" | sed "s|\$CONDA_PREFIX/bin:||" )
+unset _OLD_PATH
+EOF
+```
+
 
 
 How to run
