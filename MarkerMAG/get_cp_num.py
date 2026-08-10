@@ -851,52 +851,6 @@ def get_cigar_aln_len(cigar_splitted):
     return aligned_len
 
 
-def sep_paired_and_singleton_reads(seq_in, seq_out_r1, seq_out_r2, seq_out_singleton):
-
-    input_seq_ext = os.path.splitext(seq_in)[1]
-    input_seq_fmt = 'fasta'
-    if ('q' in input_seq_ext) or ('Q' in input_seq_ext):
-        input_seq_fmt = 'fastq'
-
-    fmt_to_provide_for_write = 'fasta-2line'
-    if input_seq_fmt == 'fastq':
-        fmt_to_provide_for_write = 'fastq'
-
-    reads_pair_dict = {}
-    for read_record in SeqIO.parse(seq_in, input_seq_fmt):
-        read_id_base = '.'.join(read_record.id.split('.')[:-1])
-        read_strand = read_record.id.split('.')[-1]
-        if read_id_base not in reads_pair_dict:
-            reads_pair_dict[read_id_base] = {read_strand}
-        else:
-            reads_pair_dict[read_id_base].add(read_strand)
-
-    read_list_paired = set()
-    read_list_singleton = set()
-    for read_base in reads_pair_dict:
-        if len(reads_pair_dict[read_base]) == 1:
-            read_list_singleton.add(read_base)
-        if len(reads_pair_dict[read_base]) == 2:
-            read_list_paired.add(read_base)
-
-    fasta_out_r1_handle = open(seq_out_r1, 'w')
-    fasta_out_r2_handle = open(seq_out_r2, 'w')
-    fasta_out_singleton_handle = open(seq_out_singleton, 'w')
-    for read_record in SeqIO.parse(seq_in, input_seq_fmt):
-        read_id_base = '.'.join(read_record.id.split('.')[:-1])
-        read_strand = read_record.id.split('.')[-1]
-        if read_id_base in read_list_singleton:
-            SeqIO.write(read_record, fasta_out_singleton_handle, fmt_to_provide_for_write)
-        if read_id_base in read_list_paired:
-            if read_strand == '1':
-                SeqIO.write(read_record, fasta_out_r1_handle, fmt_to_provide_for_write)
-            if read_strand == '2':
-                SeqIO.write(read_record, fasta_out_r2_handle, fmt_to_provide_for_write)
-    fasta_out_r1_handle.close()
-    fasta_out_r2_handle.close()
-    fasta_out_singleton_handle.close()
-
-
 def keep_only_both_mapped_reads(sam_in, sam_out):
     mapping_dic = {}
     with open(sam_in) as sorted_sam_opened:
@@ -922,8 +876,7 @@ def keep_only_both_mapped_reads(sam_in, sam_out):
                 sam_out_handle.write(each_read)
             else:
                 each_read_split = each_read.strip().split('\t')
-                read_id = each_read_split[0]
-                read_id_base = '.'.join(read_id.split('.')[:-1])
+                read_id_base = canonical_read_id(each_read_split[0])
                 if read_id_base in mapping_dic_both_mapped:
                     sam_out_handle.write(each_read)
     sam_out_handle.close()
@@ -1865,7 +1818,6 @@ def get_16s_copy_num(args):
     op_prefix                           = args['p']
     reads_file_r1                       = args['r1']
     reads_file_r2                       = args['r2']
-    matam_16s_reads                     = args['r16s']
     mag_folder                          = args['mag']
     mag_file_ext                        = args['x']
     combined_prefixed_mags              = args['cp_mags']
@@ -2302,10 +2254,7 @@ def get_16s_copy_num(args):
         report_and_log((index_all_16s_cmd), pwd_log_file, True)
         os.system(index_all_16s_cmd)
 
-        if matam_16s_reads is None:
-            map_16s_reads_to_linked_16s_cmd = 'bowtie2 -x %s -U %s,%s -S %s -p %s -f --local --xeq --all --no-unal -N 1 -L 30 --quiet' % (marker_seq_index, reads_file_r1, reads_file_r2, all_16s_sam_file, num_threads)
-        else:
-            map_16s_reads_to_linked_16s_cmd = 'bowtie2 -x %s -U %s -S %s -p %s -f --local --xeq --all --no-unal -N 1 -L 30 --quiet' % (marker_seq_index, matam_16s_reads, all_16s_sam_file, num_threads)
+        map_16s_reads_to_linked_16s_cmd = 'bowtie2 -x %s -1 %s -2 %s -S %s -p %s -f --local --xeq --all --no-unal -N 1 -L 30 --quiet' % (marker_seq_index, reads_file_r1, reads_file_r2, all_16s_sam_file, num_threads)
         report_and_log((map_16s_reads_to_linked_16s_cmd), pwd_log_file, True)
         os.system(map_16s_reads_to_linked_16s_cmd)
 
@@ -2559,7 +2508,6 @@ if __name__ == '__main__':
     get_16s_copy_num_parser.add_argument('-p',                      required=True,                                                      help='output prefix')
     get_16s_copy_num_parser.add_argument('-r1',                     required=False, metavar='',                                         help='paired reads r1 (fasta format)')
     get_16s_copy_num_parser.add_argument('-r2',                     required=False, metavar='',                                         help='paired reads r2 (fasta format)')
-    get_16s_copy_num_parser.add_argument('-r16s',                   required=False, metavar='',                 default=None,           help='matam_16s_reads')
     get_16s_copy_num_parser.add_argument('-linkages',               required=False, metavar='',                                         help='identified_linkage_gnm_level')
     get_16s_copy_num_parser.add_argument('-marker',                 required=False, metavar='',                                         help='markers clustered at 99')
     get_16s_copy_num_parser.add_argument('-mag',                    required=False, metavar='',                 default=None,           help='MAG folder')
@@ -2577,7 +2525,7 @@ if __name__ == '__main__':
     get_16s_copy_num_parser.add_argument('-both_pair_mapped',       required=False, action='store_true',                                help='both_pair_mapped')
     get_16s_copy_num_parser.add_argument('-mag_cov_gc',             required=False,                             default=None,           help='mag_depth_gc txt file')
     get_16s_copy_num_parser.add_argument('-mag_gc_bias',            required=False,                             default=None,           help='mag_gc_bias folder')
-    get_16s_copy_num_parser.add_argument('-sam_16s_sorted_by_read', required=False,                             default=None,           help='read_to_16s_sam')
+    get_16s_copy_num_parser.add_argument('-sam_16s_sorted_by_read', required=False,                             default=None,           help='Name-sorted paired-end SAM; mate identity must be encoded in FLAG 0x40/0x80')
     get_16s_copy_num_parser.add_argument('-vxtractor',              required=False,                             default='vxtractor.pl', help='path to vxtractor.pl')
     get_16s_copy_num_parser.add_argument('-ref_16s_cp_num',         required=False,                             default=None,           help='provided_cp_num_txt')
     get_16s_copy_num_parser.add_argument('-t',                      required=False, type=int,                   default=1,              help='number of threads')

@@ -7,10 +7,10 @@ barrnap-based POLISH_16S step accepts it.  MAG contigs are random sequence.
 Produces:
   data/16s/test_16S.fasta   – 1 real 16S sequence (from SILVA_16S_order.fasta)
   data/synthetic_mags/test_mag.fa – 2 random contigs (3000 + 2000 bp)
-  data/test_R1.fasta        – 160 reads named test_N.1
-  data/test_R2.fasta        – 160 reads named test_N.2
+  data/test_R1.fasta        – 160 forward reads named test_N
+  data/test_R2.fasta        – 160 reverse reads named test_N
 
-Naming follows MarkerMAG's pairing convention (PREFIX_INDEX.1 / .2).
+R1 and R2 retain the same ordinary read identifier in separate files.
 60 pairs bridge 16S→MAG, 60 bridge MAG→16S, 20 pure-16S, 20 pure-MAG.
 """
 import random
@@ -71,32 +71,32 @@ idx      = 1
 for _ in range(60):
     p16 = random.randint(0, len(seq_16s) - READ_LEN)
     pm  = random.randint(0, len(mag_ctg1) - READ_LEN)
-    r1.append((f'test_{idx}.1', seq_16s[p16:p16 + READ_LEN]))
-    r2.append((f'test_{idx}.2', mag_ctg1[pm:pm + READ_LEN]))
+    r1.append((f'test_{idx}', seq_16s[p16:p16 + READ_LEN]))
+    r2.append((f'test_{idx}', mag_ctg1[pm:pm + READ_LEN]))
     idx += 1
 
 # 60 reverse bridging: R1 from MAG, R2 from 16S
 for _ in range(60):
     p16 = random.randint(0, len(seq_16s) - READ_LEN)
     pm  = random.randint(0, len(mag_ctg1) - READ_LEN)
-    r1.append((f'test_{idx}.1', mag_ctg1[pm:pm + READ_LEN]))
-    r2.append((f'test_{idx}.2', seq_16s[p16:p16 + READ_LEN]))
+    r1.append((f'test_{idx}', mag_ctg1[pm:pm + READ_LEN]))
+    r2.append((f'test_{idx}', seq_16s[p16:p16 + READ_LEN]))
     idx += 1
 
 # 20 pure-16S pairs (noise)
 for _ in range(20):
     p1 = random.randint(0, len(seq_16s) - READ_LEN)
     p2 = random.randint(0, len(seq_16s) - READ_LEN)
-    r1.append((f'test_{idx}.1', seq_16s[p1:p1 + READ_LEN]))
-    r2.append((f'test_{idx}.2', seq_16s[p2:p2 + READ_LEN]))
+    r1.append((f'test_{idx}', seq_16s[p1:p1 + READ_LEN]))
+    r2.append((f'test_{idx}', seq_16s[p2:p2 + READ_LEN]))
     idx += 1
 
 # 20 pure-MAG pairs (noise)
 for _ in range(20):
     p1 = random.randint(0, len(mag_ctg2) - READ_LEN)
     p2 = random.randint(0, len(mag_ctg2) - READ_LEN)
-    r1.append((f'test_{idx}.1', mag_ctg2[p1:p1 + READ_LEN]))
-    r2.append((f'test_{idx}.2', mag_ctg2[p2:p2 + READ_LEN]))
+    r1.append((f'test_{idx}', mag_ctg2[p1:p1 + READ_LEN]))
+    r2.append((f'test_{idx}', mag_ctg2[p2:p2 + READ_LEN]))
     idx += 1
 
 write_fasta(BASE_DIR / 'data/test_R1.fasta', r1)

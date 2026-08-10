@@ -6,7 +6,6 @@ include { ASSEMBLE_16S   } from './subworkflows/local/assemble_16s'
 include { MARKERMAG_CORE } from './subworkflows/local/markermag_core'
 
 // ── Standalone modules (used in direct paths) ──────────────────────────────────
-include { RENAME_READS } from './modules/local/rename_reads/main'
 include { UCLUST_16S   } from './modules/local/uclust_16s/main'
 include { POLISH_16S   } from './modules/local/polish_16s/main'
 
@@ -76,8 +75,6 @@ def help_message() {
       --subsample_pct  % of reads used for MAG coverage estimation       [default: ${params.subsample_pct}]
                        (tool default: 25)
 
-    ── Preprocessing ─────────────────────────────────────────────────────────────
-      --rename_reads   Rename reads to MarkerMAG format before analysis  [default: ${params.rename_reads}]
 
     ── Resource ceilings ─────────────────────────────────────────────────────────
       --max_cpus       Maximum CPUs per process                          [default: ${params.max_cpus}]
@@ -92,6 +89,9 @@ def help_message() {
       -profile conda         Conda environment
       --conda_cache_dir      Shared Conda environment cache
                              [default: ${params.conda_cache_dir}]
+
+      --conda_environment Existing MATAM-inclusive Conda prefix
+                          [default: MARKERMAG_CONDA_PREFIX, when set]
 
     Example:
         nextflow run main.nf \\
@@ -220,41 +220,8 @@ workflow {
         .splitCsv(header: true, strip: true)
         .map { row -> parse_samplesheet_row(row) }
 
-    // ── Optional read renaming ────────────────────────────────────────────────
-    if ( params.rename_reads ) {
-        ch_raw.branch {
-                meta, r1, r2, mag_dir, mag_ext, reads_16s, s16 ->
-            with_paired_reads:     r1 != [] && r2 != []
-            without_paired_reads:  true
-        }.set { ch_rename_branched }
-
-        RENAME_READS (
-            ch_rename_branched.with_paired_reads.map {
-                    meta, r1, r2, mag_dir, mag_ext, reads_16s, s16 ->
-                tuple(meta, r1, r2)
-            }
-        )
-        ch_reads_renamed_with_pairs = RENAME_READS.out.reads
-            .join(
-                ch_rename_branched.with_paired_reads.map {
-                        meta, r1, r2, mag_dir, mag_ext, reads_16s, s16 ->
-                    tuple(meta, mag_dir, mag_ext, reads_16s, s16)
-                },
-                by: 0
-            )
-            .map { meta, r1, r2, mag_dir, mag_ext, reads_16s, s16 ->
-                tuple(meta, r1, r2, mag_dir, mag_ext, reads_16s, s16)
-            }
-
-        ch_reads_renamed = ch_reads_renamed_with_pairs.mix(
-            ch_rename_branched.without_paired_reads
-        )
-    } else {
-        ch_reads_renamed = ch_raw
-    }
-
     // ── Branch: completed 16S, extracted 16S reads, or raw reads ─────────────
-    ch_reads_renamed.branch {
+    ch_raw.branch {
             meta, r1, r2, mag_dir, mag_ext, reads_16s, s16 ->
         has_16s:              s16 != []
         has_extracted_reads:  reads_16s != []
@@ -306,7 +273,7 @@ workflow {
 
     if ( !params.reconstruct_only ) {
         // ── Reconstruct full sample tuples for MARKERMAG_CORE ───────────────
-        ch_samples_for_link = ch_reads_renamed
+        ch_samples_for_link = ch_raw
             .map { meta, r1, r2, mag_dir, mag_ext, reads_16s, s16 ->
                 tuple(meta, r1, r2, mag_dir, mag_ext)
             }

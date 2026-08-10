@@ -33,6 +33,11 @@ import plotly.graph_objects as go
 from Bio.SeqRecord import SeqRecord
 from shutil import which
 from MarkerMAG.MarkerMAG_config import config_dict
+from MarkerMAG.read_pairing import (
+    canonical_read_id,
+    extract_reads_by_pair_id,
+    sam_read_id_and_mate,
+)
 
 
 link_Marker_MAG_usage = '''
@@ -1237,216 +1242,13 @@ def extract_reads_worker(argument_list):
 
     reads_file_out_handle = open(reads_file_out, 'w')
     for read_record in SeqIO.parse(reads_file_in, reads_fmt):
-        if read_record.id in reads_to_extract:
+        if canonical_read_id(read_record.id) in reads_to_extract:
             if reads_fmt == 'fasta':
                 reads_file_out_handle.write('>%s\n' % read_record.id)
                 reads_file_out_handle.write('%s\n' % read_record.seq)
             if reads_fmt == 'fastq':
                 SeqIO.write(read_record, reads_file_out_handle, 'fastq')
     reads_file_out_handle.close()
-
-
-def get_GapFilling_stats_by_assembly(free_living_16s_ref_file, free_living_ctg_ref_file,
-                                     mini_assembly_to_16s_reads, mini_assembly_to_ctg_reads,
-                                     ctg_level_min_link,
-                                     mini_assembly_to_16s_ctg_connector, gnm_to_ctg_connector, marker_to_ctg_gnm_Key_connector,
-                                     max_within_cate_diff_pct, max_between_cate_diff_pct,
-                                     stats_GapFilling_ctg, stats_GapFilling_gnm):
-
-    round2_free_living_16s_ref_dict = {}
-    with open(free_living_16s_ref_file) as fl16rf:
-        for free_living_read_16s in fl16rf:
-            free_living_read_16s_split = free_living_read_16s.strip().split('\t')
-            if len(free_living_read_16s_split) > 1:
-                read_16s_id = free_living_read_16s_split[0]
-                read_16s_refs = free_living_read_16s_split[1].split(',')
-                round2_free_living_16s_ref_dict[read_16s_id] = read_16s_refs
-
-    round2_free_living_ctg_ref_dict = {}
-    with open(free_living_ctg_ref_file) as flcrf:
-        for free_living_read_ctg in flcrf:
-            free_living_read_ctg_split = free_living_read_ctg.strip().split('\t')
-            read_ctg_id = free_living_read_ctg_split[0]
-            read_ctg_refs = free_living_read_ctg_split[1].split(',')
-            read_ctg_refs_no_suffix = []
-            for each_read_ctg_ref in read_ctg_refs:
-                if each_read_ctg_ref[-2:] in ['_l', '_r']:
-                    each_read_ctg_ref_no_suffix = each_read_ctg_ref[:-2]
-                    read_ctg_refs_no_suffix.append(each_read_ctg_ref_no_suffix)
-            round2_free_living_ctg_ref_dict[read_ctg_id] = read_ctg_refs_no_suffix
-
-    mini_assembly_to_16s_dict = {}
-    with open(mini_assembly_to_16s_reads) as ma16r:
-        for each_mini_assembly in ma16r:
-            mini_assembly_split = each_mini_assembly.strip().split('\t')
-            mini_assembly_id = mini_assembly_split[0]
-            mini_assembly_mapped_reads = mini_assembly_split[1].split(',')
-            for each_mapped_read in mini_assembly_mapped_reads:
-                mapped_read_16s_refs = round2_free_living_16s_ref_dict.get(each_mapped_read, [])
-                for each_mapped_read_16s_ref in mapped_read_16s_refs:
-                    mini_assembly_to_16s_key = '%s%s%s' % (mini_assembly_id, mini_assembly_to_16s_ctg_connector, each_mapped_read_16s_ref)
-                    if mini_assembly_to_16s_key not in mini_assembly_to_16s_dict:
-                        mini_assembly_to_16s_dict[mini_assembly_to_16s_key] = 1
-                    else:
-                        mini_assembly_to_16s_dict[mini_assembly_to_16s_key] += 1
-
-    mini_assembly_to_ctg_dict = {}
-    with open(mini_assembly_to_ctg_reads) as macr:
-        for each_mini_assembly in macr:
-            mini_assembly_split = each_mini_assembly.strip().split('\t')
-            mini_assembly_id = mini_assembly_split[0]
-            mini_assembly_mapped_reads = mini_assembly_split[1].split(',')
-            for each_mapped_read in mini_assembly_mapped_reads:
-                mapped_read_ctg_refs = round2_free_living_ctg_ref_dict.get(each_mapped_read, [])
-                for each_mapped_read_ctg_ref in mapped_read_ctg_refs:
-                    mini_assembly_to_ctg_key = '%s%s%s' % (mini_assembly_id, mini_assembly_to_16s_ctg_connector, each_mapped_read_ctg_ref)
-                    if mini_assembly_to_ctg_key not in mini_assembly_to_ctg_dict:
-                        mini_assembly_to_ctg_dict[mini_assembly_to_ctg_key] = 1
-                    else:
-                        mini_assembly_to_ctg_dict[mini_assembly_to_ctg_key] += 1
-
-    mini_assembly_to_16s_dict_reformatted = {}
-    max_link_nun_dict_16s = {}
-    for each in mini_assembly_to_16s_dict:
-        mini_assembly_id = each.split(mini_assembly_to_16s_ctg_connector)[0]
-        seq_16s_id = each.split(mini_assembly_to_16s_ctg_connector)[1]
-        linkage_num = mini_assembly_to_16s_dict[each]
-        seq_16s_with_num = '%s__num__%s' % (seq_16s_id, linkage_num)
-        if linkage_num >= ctg_level_min_link:
-
-            # add to mini_assembly_to_16s_dict_reformatted
-            if mini_assembly_id not in mini_assembly_to_16s_dict_reformatted:
-                mini_assembly_to_16s_dict_reformatted[mini_assembly_id] = {seq_16s_with_num}
-            else:
-                mini_assembly_to_16s_dict_reformatted[mini_assembly_id].add(seq_16s_with_num)
-
-            # add to max_link_nun_dict_16s
-            if seq_16s_id not in max_link_nun_dict_16s:
-                max_link_nun_dict_16s[seq_16s_id] = linkage_num
-            else:
-                if linkage_num > max_link_nun_dict_16s[seq_16s_id]:
-                    max_link_nun_dict_16s[seq_16s_id] = linkage_num
-
-    mini_assembly_to_ctg_dict_reformatted = {}
-    max_link_nun_dict_ctg = {}
-    for each in mini_assembly_to_ctg_dict:
-        mini_assembly_id = each.split(mini_assembly_to_16s_ctg_connector)[0]
-        ctg_id = each.split(mini_assembly_to_16s_ctg_connector)[1]
-        linkage_num = mini_assembly_to_ctg_dict[each]
-        ctg_with_num = '%s__num__%s' % (ctg_id, linkage_num)
-        if linkage_num >= ctg_level_min_link:
-
-            # add to mini_assembly_to_ctg_dict_reformatted
-            if mini_assembly_id not in mini_assembly_to_ctg_dict_reformatted:
-                mini_assembly_to_ctg_dict_reformatted[mini_assembly_id] = {ctg_with_num}
-            else:
-                mini_assembly_to_ctg_dict_reformatted[mini_assembly_id].add(ctg_with_num)
-
-            # add to max_link_nun_dict_ctg
-            if ctg_id not in max_link_nun_dict_ctg:
-                max_link_nun_dict_ctg[ctg_id] = linkage_num
-            else:
-                if linkage_num > max_link_nun_dict_ctg[ctg_id]:
-                    max_link_nun_dict_ctg[ctg_id] = linkage_num
-
-    mini_assembly_linked_both = set(mini_assembly_to_16s_dict_reformatted).intersection(mini_assembly_to_ctg_dict_reformatted)
-
-    stats_GapFilling_ctg_handle = open(stats_GapFilling_ctg, 'w')
-    stats_GapFilling_gnm_dict = {}
-    for each_mini_assembly in mini_assembly_linked_both:
-        linked_16s = mini_assembly_to_16s_dict_reformatted[each_mini_assembly]
-        linked_ctg = mini_assembly_to_ctg_dict_reformatted[each_mini_assembly]
-        linked_16s_num_list = [int(i.split('__num__')[1]) for i in linked_16s]
-        linked_ctg_num_list = [int(i.split('__num__')[1]) for i in linked_ctg]
-        linked_16s_num_max = max(linked_16s_num_list)
-        linked_ctg_num_max = max(linked_ctg_num_list)
-
-        if (min(linked_16s_num_max, linked_ctg_num_max) * 100 / max(linked_16s_num_max, linked_ctg_num_max)) >= max_between_cate_diff_pct:
-
-            linked_16s_filtered = [i for i in linked_16s if int(i.split('__num__')[1])*100/linked_16s_num_max >= max_within_cate_diff_pct]
-            linked_ctg_filtered = [i for i in linked_ctg if int(i.split('__num__')[1])*100/linked_ctg_num_max >= max_within_cate_diff_pct]
-
-            for each_linked_16s in linked_16s_filtered:
-                linked_16s_id = each_linked_16s.split('__num__')[0]
-                linked_16s_num = int(each_linked_16s.split('__num__')[1])
-                linked_16s_num_pct_by_max = linked_16s_num * 100 / max_link_nun_dict_16s[linked_16s_id]
-
-                for each_linked_ctg in linked_ctg_filtered:
-                    linked_ctg_id = each_linked_ctg.split('__num__')[0]
-                    linked_gnm_id = linked_ctg_id.split(gnm_to_ctg_connector)[0]
-                    linked_ctg_num = int(each_linked_ctg.split('__num__')[1])
-                    linked_ctg_num_pct_by_max = linked_ctg_num*100/max_link_nun_dict_ctg[linked_ctg_id]
-
-                    if (linked_16s_num_pct_by_max >= 50) and (linked_ctg_num_pct_by_max >= 50):
-                        stats_GapFilling_ctg_handle.write('%s\t%s\t%s\n' % (linked_16s_id, linked_ctg_id, (linked_16s_num + linked_ctg_num)))
-                        marker_to_gnm_key = '%s%s%s' % (linked_16s_id, marker_to_ctg_gnm_Key_connector, linked_gnm_id)
-                        if marker_to_gnm_key not in stats_GapFilling_gnm_dict:
-                            stats_GapFilling_gnm_dict[marker_to_gnm_key] = (linked_16s_num + linked_ctg_num)
-                        else:
-                            stats_GapFilling_gnm_dict[marker_to_gnm_key] += (linked_16s_num + linked_ctg_num)
-    stats_GapFilling_ctg_handle.close()
-
-    stats_GapFilling_gnm_handle = open(stats_GapFilling_gnm, 'w')
-    stats_GapFilling_gnm_handle.write('MarkerGene,GenomicSeq,Number\n')
-    for each_16s_to_gnm in stats_GapFilling_gnm_dict:
-        each_16s_to_gnm_split = each_16s_to_gnm.split(marker_to_ctg_gnm_Key_connector)
-        id_16s = each_16s_to_gnm_split[0]
-        id_gnm = each_16s_to_gnm_split[1]
-        linkage_num = stats_GapFilling_gnm_dict[each_16s_to_gnm]
-        stats_GapFilling_gnm_handle.write('MarkerGene__%s,GenomicSeq__%s,%s\n' % (id_16s, id_gnm, linkage_num))
-    stats_GapFilling_gnm_handle.close()
-
-
-def get_unmapped_mates_seq(sam_file, input_r1_fasta, input_r2_fasta, extracted_seq_file, seqtk_exe):
-
-    sam_path, sam_basename, sam_ext = sep_path_basename_ext(sam_file)
-    reads_to_extract_r1_txt = '%s/%s_unmapped_mates_R1.txt' % (sam_path, sam_basename)
-    reads_to_extract_r2_txt = '%s/%s_unmapped_mates_R2.txt' % (sam_path, sam_basename)
-    reads_to_extract_r1_fa  = '%s/%s_unmapped_mates_R1.fa'  % (sam_path, sam_basename)
-    reads_to_extract_r2_fa  = '%s/%s_unmapped_mates_R2.fa'  % (sam_path, sam_basename)
-
-    prescreening_qualified_reads_set = set()
-    prescreening_qualified_reads_base_set = set()
-    with open(sam_file) as sf:
-        for each_read in sf:
-            each_read_split = each_read.strip().split('\t')
-            if not each_read.startswith('@'):
-                read_id = each_read_split[0]
-                read_id_base = '.'.join(read_id.split('.')[:-1])
-                prescreening_qualified_reads_set.add(read_id)
-                prescreening_qualified_reads_base_set.add(read_id_base)
-
-    # get id files
-    reads_to_extract_r1 = set()
-    reads_to_extract_r2 = set()
-    for each_read_base in prescreening_qualified_reads_base_set:
-        read_r1 = '%s.1' % each_read_base
-        read_r2 = '%s.2' % each_read_base
-        if (read_r1 not in prescreening_qualified_reads_set) and (read_r2 in prescreening_qualified_reads_set):
-            reads_to_extract_r1.add(read_r1)
-        if (read_r1 in prescreening_qualified_reads_set) and (read_r2 not in prescreening_qualified_reads_set):
-            reads_to_extract_r2.add(read_r2)
-
-    reads_to_extract_r1_txt_handle = open(reads_to_extract_r1_txt, 'w')
-    reads_to_extract_r1_txt_handle.write('%s\n' % '\n'.join(reads_to_extract_r1))
-    reads_to_extract_r1_txt_handle.close()
-
-    reads_to_extract_r2_txt_handle = open(reads_to_extract_r2_txt, 'w')
-    reads_to_extract_r2_txt_handle.write('%s\n' % '\n'.join(reads_to_extract_r2))
-    reads_to_extract_r2_txt_handle.close()
-
-    seqtk_extract_r1_read_cmd = 'seqtk subseq %s %s > %s' % (input_r1_fasta, reads_to_extract_r1_txt, reads_to_extract_r1_fa)
-    seqtk_extract_r2_read_cmd = 'seqtk subseq %s %s > %s' % (input_r2_fasta, reads_to_extract_r2_txt, reads_to_extract_r2_fa)
-    os.system(seqtk_extract_r1_read_cmd)
-    os.system(seqtk_extract_r2_read_cmd)
-
-    os.system('cat %s %s > %s' % (reads_to_extract_r1_fa, reads_to_extract_r2_fa, extracted_seq_file))
-
-    # rm tmp files
-    os.system('rm %s' % reads_to_extract_r1_txt)
-    os.system('rm %s' % reads_to_extract_r2_txt)
-    os.system('rm %s' % reads_to_extract_r1_fa)
-    os.system('rm %s' % reads_to_extract_r2_fa)
 
 
 def parse_uclust_output(uclust_output_table, cluster_to_member_file):
@@ -1644,9 +1446,7 @@ def parse_sam16s_worker(argument_list):
             if not each_read.startswith('@'):
                 each_read_split = each_read.strip().split('\t')
                 cigar = each_read_split[5]
-                read_id = each_read_split[0]
-                read_id_base = '.'.join(read_id.split('.')[:-1])
-                read_strand = read_id.split('.')[-1]
+                read_id_base, read_strand = sam_read_id_and_mate(each_read_split)
                 ref_id = each_read_split[2]
                 ref_pos = int(each_read_split[3])
 
@@ -1833,8 +1633,7 @@ def parse_rd2_sam_gnm_worker(arguments_list):
     min_M_len_ctg                                = arguments_list[3]
     mismatch_cutoff                              = arguments_list[4]
     round_2_ctg_end_seq_len_dict                 = arguments_list[5]
-    rd2_with_both_mates                          = arguments_list[6]
-    ctg_ignore_region_dict_2rd                   = arguments_list[7]
+    ctg_ignore_region_dict_2rd                   = arguments_list[6]
 
     free_living_ctg_ref_file_handle = open(free_living_ctg_ref_file, 'w')
     free_living_ctg_ref_file_with_pos_cigar_handle = open(free_living_ctg_ref_file_with_pos_cigar, 'w')
@@ -1846,9 +1645,7 @@ def parse_rd2_sam_gnm_worker(arguments_list):
             if not each_line.startswith('@'):
                 each_line_split = each_line.strip().split('\t')
                 cigar = each_line_split[5]
-                read_id = each_line_split[0]
-                read_id_base = '.'.join(read_id.split('.')[:-1])
-                read_strand = read_id.split('.')[-1]
+                read_id_base, read_strand = sam_read_id_and_mate(each_line_split)
                 ref_id = each_line_split[2]
                 ref_pos = int(each_line_split[3])
 
@@ -1995,21 +1792,13 @@ def parse_rd2_sam_gnm_worker(arguments_list):
 
                     # only r1 has no_ignored alignments
                     if (len(r1_ctg_refs_rd2_no_ignored) > 0) and (len(r2_ctg_refs_rd2_no_ignored) == 0):
-                        if rd2_with_both_mates is True:
-                            free_living_ctg_ref_file_handle.write('%s\t%s\n' % (current_read_base, ','.join(r1_ctg_refs_rd2_no_ignored)))
-                            free_living_ctg_ref_file_with_pos_cigar_handle.write('%s\t%s\n' % (current_read_base, ','.join(r1_ctg_refs_rd2_no_ignored_str_list_with_pos)))
-                        else:
-                            free_living_ctg_ref_file_handle.write('%s.2\t%s\n' % (current_read_base, ','.join(r1_ctg_refs_rd2_no_ignored)))
-                            free_living_ctg_ref_file_with_pos_cigar_handle.write('%s.2\t%s\n' % (current_read_base, ','.join(r1_ctg_refs_rd2_no_ignored_str_list_with_pos)))
+                        free_living_ctg_ref_file_handle.write('%s\t2\t%s\n' % (current_read_base, ','.join(r1_ctg_refs_rd2_no_ignored)))
+                        free_living_ctg_ref_file_with_pos_cigar_handle.write('%s\t2\t%s\n' % (current_read_base, ','.join(r1_ctg_refs_rd2_no_ignored_str_list_with_pos)))
 
                     # only r2 has no_ignored alignments
                     if (len(r1_ctg_refs_rd2_no_ignored) == 0) and (len(r2_ctg_refs_rd2_no_ignored) > 0):
-                        if rd2_with_both_mates is True:
-                            free_living_ctg_ref_file_handle.write('%s\t%s\n' % (current_read_base, ','.join(r2_ctg_refs_rd2_no_ignored)))
-                            free_living_ctg_ref_file_with_pos_cigar_handle.write('%s\t%s\n' % (current_read_base, ','.join(r2_ctg_refs_rd2_no_ignored_str_list_with_pos)))
-                        else:
-                            free_living_ctg_ref_file_handle.write('%s.1\t%s\n' % (current_read_base, ','.join(r2_ctg_refs_rd2_no_ignored)))
-                            free_living_ctg_ref_file_with_pos_cigar_handle.write('%s.1\t%s\n' % (current_read_base, ','.join(r2_ctg_refs_rd2_no_ignored_str_list_with_pos)))
+                        free_living_ctg_ref_file_handle.write('%s\t1\t%s\n' % (current_read_base, ','.join(r2_ctg_refs_rd2_no_ignored)))
+                        free_living_ctg_ref_file_with_pos_cigar_handle.write('%s\t1\t%s\n' % (current_read_base, ','.join(r2_ctg_refs_rd2_no_ignored_str_list_with_pos)))
 
                     ########################################### reset values ###########################################
 
@@ -2021,7 +1810,7 @@ def parse_rd2_sam_gnm_worker(arguments_list):
                         if read_strand == '1':
                             current_read_base_r1_ctg_ref_dict_rd2[ref_id] = {ref_pos: cigar}
                         if read_strand == '2':
-                            current_read_base_r1_ctg_ref_dict_rd2[ref_id] = {ref_pos: cigar}
+                            current_read_base_r2_ctg_ref_dict_rd2[ref_id] = {ref_pos: cigar}
 
     free_living_ctg_ref_file_handle.close()
     free_living_ctg_ref_file_with_pos_cigar_handle.close()
@@ -2224,7 +2013,7 @@ def linkage_vis_worker(arguments_list):
 
     if to_concatenate is True:
         index_ref_cmd = 'bowtie2-build --quiet -f %s %s' % (pwd_seq_file_cbd, pwd_seq_file_cbd_index)
-        bowtie2_cmd = 'bowtie2 -x %s -U %s,%s -S %s -p 1 -f %s' % (pwd_seq_file_cbd_index, pwd_seq_file_reads_r1, pwd_seq_file_reads_r2, pwd_seq_file_cbd_sam, bowtie_parameter)
+        bowtie2_cmd = 'bowtie2 -x %s -1 %s -2 %s -S %s -p 1 -f %s' % (pwd_seq_file_cbd_index, pwd_seq_file_reads_r1, pwd_seq_file_reads_r2, pwd_seq_file_cbd_sam, bowtie_parameter)
         os.system(index_ref_cmd)
         os.system(bowtie2_cmd)
 
@@ -2242,8 +2031,8 @@ def linkage_vis_worker(arguments_list):
         index_ref_cmd_ctg = 'bowtie2-build --quiet -f %s %s' % (pwd_seq_file_ctg, pwd_seq_file_ctg_index)
         os.system(index_ref_cmd_16s)
         os.system(index_ref_cmd_ctg)
-        bowtie2_cmd_16s = 'bowtie2 -x %s -U %s,%s -S %s -p 6 -f %s' % (pwd_seq_file_16s_index, pwd_seq_file_reads_r1, pwd_seq_file_reads_r2, pwd_seq_file_16s_sam, bowtie_parameter)
-        bowtie2_cmd_ctg = 'bowtie2 -x %s -U %s,%s -S %s -p 6 -f %s' % (pwd_seq_file_ctg_index, pwd_seq_file_reads_r1, pwd_seq_file_reads_r2, pwd_seq_file_ctg_sam, bowtie_parameter)
+        bowtie2_cmd_16s = 'bowtie2 -x %s -1 %s -2 %s -S %s -p 6 -f %s' % (pwd_seq_file_16s_index, pwd_seq_file_reads_r1, pwd_seq_file_reads_r2, pwd_seq_file_16s_sam, bowtie_parameter)
+        bowtie2_cmd_ctg = 'bowtie2 -x %s -1 %s -2 %s -S %s -p 6 -f %s' % (pwd_seq_file_ctg_index, pwd_seq_file_reads_r1, pwd_seq_file_reads_r2, pwd_seq_file_ctg_sam, bowtie_parameter)
         os.system(bowtie2_cmd_16s)
         os.system(bowtie2_cmd_ctg)
 
@@ -2769,7 +2558,7 @@ def link_16s(args, config_dict):
 
     if reads_vs_16s_sam is None:
         report_and_log(('Rd1: mapping input reads to marker genes with %s cores (be patient!)' % num_threads), pwd_log_file, keep_quiet)
-        bowtie_read_to_16s_cmd = 'bowtie2 -x %s -U %s,%s -S %s -p %s -f %s' % (input_16s_qc_no_ext, reads_file_r1_fasta, reads_file_r2_fasta, input_reads_to_16s_sam_bowtie, num_threads, bowtie_parameter)
+        bowtie_read_to_16s_cmd = 'bowtie2 -x %s -1 %s -2 %s -S %s -p %s -f %s' % (input_16s_qc_no_ext, reads_file_r1_fasta, reads_file_r2_fasta, input_reads_to_16s_sam_bowtie, num_threads, bowtie_parameter)
         report_and_log((bowtie_read_to_16s_cmd), pwd_log_file, True)
         os.system(bowtie_read_to_16s_cmd)
 
@@ -2887,17 +2676,17 @@ def link_16s(args, config_dict):
     # write out id of reads to extract
     to_extract_read_base_list = sorted(list(MappingRecord_dict.keys()))
     with open(rd1_r1_to_extract, 'w') as rd1_r1_to_extract_handle:
-        rd1_r1_to_extract_handle.write('%s\n' % '\n'.join([('%s.1' % i) for i in to_extract_read_base_list]))
+        rd1_r1_to_extract_handle.write('%s\n' % '\n'.join(to_extract_read_base_list))
     with open(rd1_r2_to_extract, 'w') as rd1_r2_to_extract_handle:
-        rd1_r2_to_extract_handle.write('%s\n' % '\n'.join([('%s.2' % i) for i in to_extract_read_base_list]))
+        rd1_r2_to_extract_handle.write('%s\n' % '\n'.join(to_extract_read_base_list))
 
-    # extract reads with seqtk
-    seqtk_extract_cmd_rd1_r1 = 'seqtk subseq %s %s > %s' % (reads_file_r1_fasta, rd1_r1_to_extract, rd1_extracted_p_r1)
-    seqtk_extract_cmd_rd1_r2 = 'seqtk subseq %s %s > %s' % (reads_file_r2_fasta, rd1_r2_to_extract, rd1_extracted_p_r2)
-    report_and_log((seqtk_extract_cmd_rd1_r1), pwd_log_file, True)
-    report_and_log((seqtk_extract_cmd_rd1_r2), pwd_log_file, True)
-    os.system(seqtk_extract_cmd_rd1_r1)
-    os.system(seqtk_extract_cmd_rd1_r2)
+    # Stream from the original files; identifiers are never rewritten.
+    extract_reads_by_pair_id(
+        reads_file_r1_fasta, to_extract_read_base_list, rd1_extracted_p_r1,
+        sequence_format='fasta')
+    extract_reads_by_pair_id(
+        reads_file_r2_fasta, to_extract_read_base_list, rd1_extracted_p_r2,
+        sequence_format='fasta')
 
     # if keep_tmp is False:
     #     os.remove(rd1_r1_to_extract)
@@ -2911,10 +2700,10 @@ def link_16s(args, config_dict):
     combined_input_gnms_no_ending_16s_no_ext    = '.'.join(combined_input_gnms_no_ending_16s.split('.')[:-1])
 
     bowtie_build_input_gnm_cmd          = 'bowtie2-build --quiet --threads %s -f %s %s'            % (num_threads, combined_input_gnms, combined_input_gnms_no_ext)
-    bowtie_cmd_rd1_extracted_to_mag     = 'bowtie2 -x %s -U %s,%s -S %s -p %s -f %s'  % (combined_input_gnms_no_ext, rd1_extracted_p_r1, rd1_extracted_p_r2, rd1_extracted_to_gnm_sam, num_threads, bowtie_parameter)
+    bowtie_cmd_rd1_extracted_to_mag     = 'bowtie2 -x %s -1 %s -2 %s -S %s -p %s -f %s'  % (combined_input_gnms_no_ext, rd1_extracted_p_r1, rd1_extracted_p_r2, rd1_extracted_to_gnm_sam, num_threads, bowtie_parameter)
     if remove_ending_16s_seqs is True:
         bowtie_build_input_gnm_cmd      = 'bowtie2-build --quiet --threads %s -f %s %s'            % (num_threads, combined_input_gnms_no_ending_16s, combined_input_gnms_no_ending_16s_no_ext)
-        bowtie_cmd_rd1_extracted_to_mag = 'bowtie2 -x %s -U %s,%s -S %s -p %s -f %s'  % (combined_input_gnms_no_ending_16s_no_ext, rd1_extracted_p_r1, rd1_extracted_p_r2, rd1_extracted_to_gnm_sam, num_threads, bowtie_parameter)
+        bowtie_cmd_rd1_extracted_to_mag = 'bowtie2 -x %s -1 %s -2 %s -S %s -p %s -f %s'  % (combined_input_gnms_no_ending_16s_no_ext, rd1_extracted_p_r1, rd1_extracted_p_r2, rd1_extracted_to_gnm_sam, num_threads, bowtie_parameter)
 
     # index ref
     os.system(bowtie_build_input_gnm_cmd)
@@ -2950,9 +2739,7 @@ def link_16s(args, config_dict):
             if not each_read.startswith('@'):
                 each_read_split = each_read.strip().split('\t')
                 cigar = each_read_split[5]
-                read_id = each_read_split[0]
-                read_id_base = '.'.join(read_id.split('.')[:-1])
-                read_strand = read_id.split('.')[-1]
+                read_id_base, read_strand = sam_read_id_and_mate(each_read_split)
                 ref_id = each_read_split[2]
                 ref_pos = int(each_read_split[3])
 
@@ -3336,15 +3123,16 @@ def link_16s(args, config_dict):
 
     # write out id of linking reads for extraction
     with open(linking_reads_r1_txt, 'w') as linking_reads_r1_txt_handle:
-        linking_reads_r1_txt_handle.write('%s\n' % '\n'.join(sorted([('%s.1' % i) for i in all_linking_reads_base_set])))
+        linking_reads_r1_txt_handle.write('%s\n' % '\n'.join(sorted(all_linking_reads_base_set)))
     with open(linking_reads_r2_txt, 'w') as linking_reads_r2_txt_handle:
-        linking_reads_r2_txt_handle.write('%s\n' % '\n'.join(sorted([('%s.2' % i) for i in all_linking_reads_base_set])))
+        linking_reads_r2_txt_handle.write('%s\n' % '\n'.join(sorted(all_linking_reads_base_set)))
 
-    # extract linking reads with seqtk
-    seqtk_extract_cmd_rd1_linking_r1 = 'seqtk subseq %s %s > %s' % (reads_file_r1_fasta, linking_reads_r1_txt, linking_reads_r1_fasta)
-    seqtk_extract_cmd_rd1_linking_r2 = 'seqtk subseq %s %s > %s' % (reads_file_r2_fasta, linking_reads_r2_txt, linking_reads_r2_fasta)
-    os.system(seqtk_extract_cmd_rd1_linking_r1)
-    os.system(seqtk_extract_cmd_rd1_linking_r2)
+    extract_reads_by_pair_id(
+        reads_file_r1_fasta, all_linking_reads_base_set,
+        linking_reads_r1_fasta, sequence_format='fasta')
+    extract_reads_by_pair_id(
+        reads_file_r2_fasta, all_linking_reads_base_set,
+        linking_reads_r2_fasta, sequence_format='fasta')
     if keep_tmp is False:
         os.remove(linking_reads_r1_txt)
         os.remove(linking_reads_r2_txt)
@@ -3366,9 +3154,9 @@ def link_16s(args, config_dict):
     # read sequence of linking reads into dict
     linking_read_seq_dict = {}
     for linking_r1 in SeqIO.parse(linking_reads_r1_fasta, 'fasta'):
-        linking_read_seq_dict[linking_r1.id] = str(linking_r1.seq)
+        linking_read_seq_dict[(canonical_read_id(linking_r1.id), '1')] = (linking_r1.id, str(linking_r1.seq))
     for linking_r2 in SeqIO.parse(linking_reads_r2_fasta, 'fasta'):
-        linking_read_seq_dict[linking_r2.id] = str(linking_r2.seq)
+        linking_read_seq_dict[(canonical_read_id(linking_r2.id), '2')] = (linking_r2.id, str(linking_r2.seq))
 
     ########## prepare seq with multi-processing ##########
 
@@ -3429,10 +3217,8 @@ def link_16s(args, config_dict):
                 vis_reads_file_r1_handle = open(vis_reads_file_r1, 'w')
                 vis_reads_file_r2_handle = open(vis_reads_file_r2, 'w')
                 for each_linking_read in linking_reads:
-                    linking_r1_id = '%s.1' % each_linking_read
-                    linking_r1_seq = linking_read_seq_dict[linking_r1_id]
-                    linking_r2_id = '%s.2' % each_linking_read
-                    linking_r2_seq = linking_read_seq_dict[linking_r2_id]
+                    linking_r1_id, linking_r1_seq = linking_read_seq_dict[(each_linking_read, '1')]
+                    linking_r2_id, linking_r2_seq = linking_read_seq_dict[(each_linking_read, '2')]
                     vis_reads_file_r1_handle.write('>%s\n' % linking_r1_id)
                     vis_reads_file_r1_handle.write('%s\n' % linking_r1_seq)
                     vis_reads_file_r2_handle.write('>%s\n' % linking_r2_id)
@@ -3497,12 +3283,10 @@ def link_16s(args, config_dict):
     mira_manifest                               = '%s/mira_manifest.txt'                                % step_2_wd
     mira_stdout                                 = '%s/mira_stdout.txt'                                  % step_2_wd
     stats_GapFilling_ctg                        = '%s/stats_GapFilling_ctg.txt'                         % step_2_wd
-    rd2_read_extracted_flanking_both_r12_seq    = '%s/rd2_read_to_extract_flanking_both_R12.fa'         % step_2_wd
     rd2_to_extract_flking_both_r1_id            = '%s/rd2_to_extract_flking_both_r1_id.txt'             % step_2_wd
     rd2_to_extract_flking_both_r2_id            = '%s/rd2_to_extract_flking_both_r2_id.txt'             % step_2_wd
     rd2_to_extract_flking_both_r1_fa            = '%s/rd2_to_extract_flking_both_r1.fa'                 % step_2_wd
     rd2_to_extract_flking_both_r2_fa            = '%s/rd2_to_extract_flking_both_r2.fa'                 % step_2_wd
-    rd2_read_extracted_flanking_both_r12_up_seq = '%s/rd2_read_to_extract_flanking_both_R12_up.fa'      % step_2_wd
     sam_file_mini_assembly                      = '%s/scaffolds_bowtie.sam'                             % step_2_wd
     sam_file_mini_assembly_reformatted_sorted   = '%s/scaffolds_bowtie_sorted.sam'                      % step_2_wd
     stats_mini_assembly_to_ctg                  = '%s/stats_mini_assembly_to_ctg.txt'                   % step_2_wd
@@ -3513,7 +3297,6 @@ def link_16s(args, config_dict):
     mafft_seq_folder_mini_to_ctg                = '%s/vis_folder_mini_to_ctg'                           % step_2_wd
     rd2_mini_to_16s_short_M_pct                 = '%s/rd2_mini_to_16s_short_M_pct.txt'                  % step_2_wd
     link_vis_folder_rd2                         = '%s/%s_linkage_visualization_rd2'                     % (working_directory, output_prefix)
-    rd2_with_both_mates                         = False
 
     #################### get the sequences of 1st round unlinked marker genes and genomic sequences ####################
 
@@ -3582,8 +3365,6 @@ def link_16s(args, config_dict):
         # get the id of reads to extract
         free_living_16s_ref_file_handle = open(free_living_16s_ref_file, 'w')
         rd2_read_to_extract_flanking_16s = set()
-        rd2_read_to_extract_flanking_16s_r1_up = set()
-        rd2_read_to_extract_flanking_16s_r2_up = set()
         for each_mp in MappingRecord_dict.copy():
             if each_mp in all_linking_reads_for_rd1_linkages:
                 MappingRecord_dict.pop(each_mp)
@@ -3592,21 +3373,13 @@ def link_16s(args, config_dict):
                 r2_16s_refs_no_ignored = MappingRecord_dict[each_mp].r2_16s_refs_no_ignored
                 if len(MappingRecord_dict[each_mp].shared_16s_refs_no_ignored) > 0:
                     MappingRecord_dict.pop(each_mp)
-                elif (len(r1_16s_refs_no_ignored) > 0) or (len(r2_16s_refs_no_ignored) == 0):
+                elif (len(r1_16s_refs_no_ignored) > 0) and (len(r2_16s_refs_no_ignored) == 0):
                     rd2_read_to_extract_flanking_16s.add(each_mp)
-                    rd2_read_to_extract_flanking_16s_r2_up.add('%s.2' % each_mp)
-                    if rd2_with_both_mates is True:
-                        free_living_16s_ref_file_handle.write('%s\t%s\n' % (each_mp, ','.join(r1_16s_refs_no_ignored)))
-                    else:
-                        free_living_16s_ref_file_handle.write('%s.2\t%s\n' % (each_mp, ','.join(r1_16s_refs_no_ignored)))
+                    free_living_16s_ref_file_handle.write('%s\t2\t%s\n' % (each_mp, ','.join(r1_16s_refs_no_ignored)))
 
-                elif (len(r1_16s_refs_no_ignored) == 0) or (len(r2_16s_refs_no_ignored) > 0):
+                elif (len(r1_16s_refs_no_ignored) == 0) and (len(r2_16s_refs_no_ignored) > 0):
                     rd2_read_to_extract_flanking_16s.add(each_mp)
-                    rd2_read_to_extract_flanking_16s_r1_up.add('%s.1' % each_mp)
-                    if rd2_with_both_mates is True:
-                        free_living_16s_ref_file_handle.write('%s\t%s\n' % (each_mp, ','.join(r2_16s_refs_no_ignored)))
-                    else:
-                        free_living_16s_ref_file_handle.write('%s.1\t%s\n' % (each_mp, ','.join(r2_16s_refs_no_ignored)))
+                    free_living_16s_ref_file_handle.write('%s\t1\t%s\n' % (each_mp, ','.join(r2_16s_refs_no_ignored)))
         free_living_16s_ref_file_handle.close()
 
 
@@ -3621,7 +3394,7 @@ def link_16s(args, config_dict):
         os.system(bowtie_build_unlinked_ctg_cmd)
 
         # mapping with bowtie
-        bowtie_cmd_unlinked_ctg = 'bowtie2 -x %s -U %s,%s -S %s -p %s -f %s' % (rd1_unlinked_mag_end_seq_no_ext, reads_file_r1_fasta, reads_file_r2_fasta, rd1_unlinked_mags_sam_bowtie, num_threads, bowtie_parameter)
+        bowtie_cmd_unlinked_ctg = 'bowtie2 -x %s -1 %s -2 %s -S %s -p %s -f %s' % (rd1_unlinked_mag_end_seq_no_ext, reads_file_r1_fasta, reads_file_r2_fasta, rd1_unlinked_mags_sam_bowtie, num_threads, bowtie_parameter)
         os.system(bowtie_cmd_unlinked_ctg)
         os.system('rm %s' % rd1_unlinked_mag_end_seq_index_file_re)
 
@@ -3672,7 +3445,6 @@ def link_16s(args, config_dict):
                                                   min_M_len_ctg,
                                                   mismatch_cutoff,
                                                   round_2_ctg_end_seq_len_dict,
-                                                  rd2_with_both_mates,
                                                   ctg_ignore_region_dict_rd2])
 
         pool_parse_sam_gnm = mp.Pool(processes=num_threads)
@@ -3693,21 +3465,20 @@ def link_16s(args, config_dict):
         with open(free_living_ctg_ref_file_with_pos_cigar) as flcrfwpc:
             for each_flk_read in flcrfwpc:
                 flk_read_id = each_flk_read.strip().split('\t')[0]
-                if rd2_with_both_mates is False:
-                    flk_read_id = '.'.join(flk_read_id.split('.')[:-1])
                 to_extract_read_base_rd2_flk_both.add(flk_read_id)
 
         # write out id of linking reads for extraction
         with open(rd2_to_extract_flking_both_r1_id, 'w') as rd2_to_extract_flking_both_r1_id_handle:
-            rd2_to_extract_flking_both_r1_id_handle.write('%s\n' % '\n'.join(sorted([('%s.1' % i) for i in to_extract_read_base_rd2_flk_both])))
+            rd2_to_extract_flking_both_r1_id_handle.write('%s\n' % '\n'.join(sorted(to_extract_read_base_rd2_flk_both)))
         with open(rd2_to_extract_flking_both_r2_id, 'w') as rd2_to_extract_flking_both_r2_id_handle:
-            rd2_to_extract_flking_both_r2_id_handle.write('%s\n' % '\n'.join(sorted([('%s.2' % i) for i in to_extract_read_base_rd2_flk_both])))
+            rd2_to_extract_flking_both_r2_id_handle.write('%s\n' % '\n'.join(sorted(to_extract_read_base_rd2_flk_both)))
 
-        # extract reads with seqtk
-        seqtk_extract_cmd_rd2_flk_both_r1 = 'seqtk subseq %s %s > %s' % (reads_file_r1_fasta, rd2_to_extract_flking_both_r1_id, rd2_to_extract_flking_both_r1_fa)
-        seqtk_extract_cmd_rd2_flk_both_r2 = 'seqtk subseq %s %s > %s' % (reads_file_r2_fasta, rd2_to_extract_flking_both_r2_id, rd2_to_extract_flking_both_r2_fa)
-        os.system(seqtk_extract_cmd_rd2_flk_both_r1)
-        os.system(seqtk_extract_cmd_rd2_flk_both_r2)
+        extract_reads_by_pair_id(
+            reads_file_r1_fasta, to_extract_read_base_rd2_flk_both,
+            rd2_to_extract_flking_both_r1_fa, sequence_format='fasta')
+        extract_reads_by_pair_id(
+            reads_file_r2_fasta, to_extract_read_base_rd2_flk_both,
+            rd2_to_extract_flking_both_r2_fa, sequence_format='fasta')
         if keep_tmp is False:
             os.remove(rd2_to_extract_flking_both_r1_id)
             os.remove(rd2_to_extract_flking_both_r2_id)
@@ -3715,9 +3486,9 @@ def link_16s(args, config_dict):
         # read sequence of flanking reads into dict
         flk_both_read_seq_dict = {}
         for linking_r1 in SeqIO.parse(rd2_to_extract_flking_both_r1_fa, 'fasta'):
-            flk_both_read_seq_dict[linking_r1.id] = str(linking_r1.seq)
+            flk_both_read_seq_dict[(canonical_read_id(linking_r1.id), '1')] = (linking_r1.id, str(linking_r1.seq))
         for linking_r2 in SeqIO.parse(rd2_to_extract_flking_both_r2_fa, 'fasta'):
-            flk_both_read_seq_dict[linking_r2.id] = str(linking_r2.seq)
+            flk_both_read_seq_dict[(canonical_read_id(linking_r2.id), '2')] = (linking_r2.id, str(linking_r2.seq))
 
         ##################################################### get reads flanking 16s and ctg ####################################################
 
@@ -3726,7 +3497,7 @@ def link_16s(args, config_dict):
         with open(free_living_16s_ref_file) as fl16rf:
             for each_16s_ref in fl16rf:
                 each_16s_ref_split = each_16s_ref.strip().split('\t')
-                linked_refs = each_16s_ref_split[1].split(',')
+                linked_refs = each_16s_ref_split[2].split(',')
                 linked_to_linked_ref = False
                 for each_linked_ref in linked_refs:
                     if each_linked_ref in linked_marker_gene_set:
@@ -3740,7 +3511,7 @@ def link_16s(args, config_dict):
         with open(free_living_ctg_ref_file) as flcrf:
             for each_ctg_ref in flcrf:
                 each_ctg_ref_split = each_ctg_ref.strip().split('\t')
-                linked_ctgs = each_ctg_ref_split[1].split(',')
+                linked_ctgs = each_ctg_ref_split[2].split(',')
                 linked_to_linked_gnm = False
                 for each_linked_ctg in linked_ctgs:
                     linked_gnm = each_linked_ctg.split(gnm_to_ctg_connector)[0]
@@ -3750,70 +3521,38 @@ def link_16s(args, config_dict):
                    free_living_ctg_ref_file_no_linked_handle.write(each_ctg_ref)
         free_living_ctg_ref_file_no_linked_handle.close()
 
-        flanking_16s_reads = set()
         flanking_16s_reads_base = set()
         with open(free_living_16s_ref_file_no_linked) as fl16rfnl:
             for free_living_read_16s in fl16rfnl:
-                free_living_read_16s_split = free_living_read_16s.strip().split('\t')
-                if len(free_living_read_16s_split) > 1:
-                    read_16s_id = free_living_read_16s_split[0]
-                    read_16s_id_base = '.'.join(read_16s_id.split('.')[:-1])
-                    flanking_16s_reads.add(read_16s_id)
-                    flanking_16s_reads_base.add(read_16s_id_base)
+                fields = free_living_read_16s.rstrip().split('\t')
+                if len(fields) >= 3:
+                    read_base = fields[0]
+                    flanking_16s_reads_base.add(read_base)
 
-        flanking_ctg_reads = set()
         flanking_ctg_reads_base = set()
         with open(free_living_ctg_ref_file_no_linked) as flcrfnl:
-            for each_read_to_ctg_ref in flcrfnl:
-                read_id = each_read_to_ctg_ref.strip().split('\t')[0]
-                read_id_base = '.'.join(read_id.split('.')[:-1])
-                flanking_ctg_reads.add(read_id)
-                flanking_ctg_reads_base.add(read_id_base)
+            for free_living_read_ctg in flcrfnl:
+                fields = free_living_read_ctg.rstrip().split('\t')
+                if len(fields) >= 3:
+                    read_base = fields[0]
+                    flanking_ctg_reads_base.add(read_base)
 
         ##################################################### combine reads flanking 16s and contig ####################################################
 
-        rd2_read_to_extract_flanking_both      = set.union(flanking_16s_reads, flanking_ctg_reads)
-        rd2_read_to_extract_flanking_both_base = set.union(flanking_16s_reads_base, flanking_ctg_reads_base)
-
-        # this step produce the input file for spades
-        rd2_read_extracted_flanking_both_r12_up_seq_handle = open(rd2_read_extracted_flanking_both_r12_up_seq, 'w')
-        for each_flk_read in flk_both_read_seq_dict:
-            if each_flk_read in rd2_read_to_extract_flanking_both:
-                rd2_read_extracted_flanking_both_r12_up_seq_handle.write('>%s\n' % each_flk_read)
-                rd2_read_extracted_flanking_both_r12_up_seq_handle.write('%s\n' % flk_both_read_seq_dict[each_flk_read])
-        rd2_read_extracted_flanking_both_r12_up_seq_handle.close()
-
-        # file produced here will be mapped to mini-assemblies
-        rd2_read_extracted_flanking_both_r12_seq_handle = open(rd2_read_extracted_flanking_both_r12_seq, 'w')
-        for flanking_both_base in rd2_read_to_extract_flanking_both_base:
-            flanking_both_r1 = '%s.1' % flanking_both_base
-            flanking_both_r2 = '%s.2' % flanking_both_base
-            flanking_both_r1_seq = flk_both_read_seq_dict[flanking_both_r1]
-            flanking_both_r2_seq = flk_both_read_seq_dict[flanking_both_r2]
-            rd2_read_extracted_flanking_both_r12_seq_handle.write('>%s\n' % flanking_both_r1)
-            rd2_read_extracted_flanking_both_r12_seq_handle.write('%s\n'  % flanking_both_r1_seq)
-            rd2_read_extracted_flanking_both_r12_seq_handle.write('>%s\n' % flanking_both_r2)
-            rd2_read_extracted_flanking_both_r12_seq_handle.write('%s\n'  % flanking_both_r2_seq)
-        rd2_read_extracted_flanking_both_r12_seq_handle.close()
+        rd2_read_to_extract_flanking_both_base = set.union(
+            flanking_16s_reads_base, flanking_ctg_reads_base)
 
         ######################################### second round linking by assembly #########################################
 
         # assemble
         if round_2_mira is True:
+            argument_list_r1 = [
+                reads_file_r1, 'fastq',
+                rd2_read_to_extract_flanking_both_base, free_living_all_fq_r1]
+            argument_list_r2 = [
+                reads_file_r2, 'fastq',
+                rd2_read_to_extract_flanking_both_base, free_living_all_fq_r2]
 
-            free_living_all_id_r1 = set()
-            free_living_all_id_r2 = set()
-            with open(rd2_read_extracted_flanking_both_r12_up_seq) as rrefbrus:
-                for each_read in rrefbrus:
-                    if each_read.startswith('>'):
-                        read_id = each_read.strip()[1:].split(' ')[0]
-                        if read_id[-1] == '1':
-                            free_living_all_id_r1.add(read_id)
-                        if read_id[-1] == '2':
-                            free_living_all_id_r2.add(read_id)
-
-            argument_list_r1 = [reads_file_r1, 'fastq', free_living_all_id_r1, free_living_all_fq_r1]
-            argument_list_r2 = [reads_file_r2, 'fastq', free_living_all_id_r2, free_living_all_fq_r2]
 
             # extract reads with multiprocessing
             pool = mp.Pool(processes=2)
@@ -3827,7 +3566,7 @@ def link_16s(args, config_dict):
             mini_assemblies = '%s/%s_mira_est_no_chimera_assembly/%s_mira_est_no_chimera_d_results/%s_mira_est_no_chimera_out.unpadded.fasta' % (step_2_wd, output_prefix, output_prefix, output_prefix)
         else:
             report_and_log(('Rd2: running SPAdes on extracted reads'), pwd_log_file, keep_quiet)
-            spades_cmd = 'spades.py --only-assembler -s %s -o %s -t %s -k 75,99,123 -m 1024 > %s' % (rd2_read_extracted_flanking_both_r12_up_seq, spades_wd, num_threads, spades_log)
+            spades_cmd = 'spades.py --only-assembler -1 %s -2 %s -o %s -t %s -k 75,99,123 -m 1024 > %s' % (rd2_to_extract_flking_both_r1_fa, rd2_to_extract_flking_both_r2_fa, spades_wd, num_threads, spades_log)
 
             report_and_log((spades_cmd), pwd_log_file, True)
             os.system(spades_cmd)
@@ -3844,7 +3583,7 @@ def link_16s(args, config_dict):
             os.system(bowtie_build_mini_assemblies_cmd)
 
             # mapping with bowtie
-            bowtie_cmd_miniassembly = 'bowtie2 -x %s -U %s -S %s -p %s -f %s'    % (mini_assemblies_no_ext, rd2_read_extracted_flanking_both_r12_seq, sam_file_mini_assembly, num_threads, bowtie_parameter)
+            bowtie_cmd_miniassembly = 'bowtie2 -x %s -1 %s -2 %s -S %s -p %s -f %s' % (mini_assemblies_no_ext, rd2_to_extract_flking_both_r1_fa, rd2_to_extract_flking_both_r2_fa, sam_file_mini_assembly, num_threads, bowtie_parameter)
             report_and_log((bowtie_cmd_miniassembly), pwd_log_file, True)
             os.system(bowtie_cmd_miniassembly)
 
@@ -3878,9 +3617,7 @@ def link_16s(args, config_dict):
                         mini_assembly_len_dict[mini_assembly_id] = mini_assembly_len
                     else:
                         cigar = each_line_split[5]
-                        read_id = each_line_split[0]
-                        read_id_base = '.'.join(read_id.split('.')[:-1])
-                        read_strand = read_id.split('.')[-1]
+                        read_id_base, read_strand = sam_read_id_and_mate(each_line_split)
                         ref_id = each_line_split[2]
                         ref_pos = int(each_line_split[3])
 
@@ -4004,13 +3741,14 @@ def link_16s(args, config_dict):
                 for each_read_to_ctg_ref in flcrfwpc:
                     each_read_to_ctg_ref_split = each_read_to_ctg_ref.strip().split('\t')
                     read_id = each_read_to_ctg_ref_split[0]
-                    ctg_refs = each_read_to_ctg_ref_split[1].split(',')
+                    read_mate = each_read_to_ctg_ref_split[1]
+                    ctg_refs = each_read_to_ctg_ref_split[2].split(',')
                     for each_ctg_ref in ctg_refs:
                         each_ctg_ref_split = each_ctg_ref.split('__pc__')
                         ctg_ref_id = each_ctg_ref_split[0]
                         ctg_ref_pos = int(each_ctg_ref_split[1])
                         ctg_ref_cigar = each_ctg_ref_split[2]
-                        read_to_ctg_ref_key = '%s__ctg__%s' % (read_id, ctg_ref_id)
+                        read_to_ctg_ref_key = (read_id, read_mate, ctg_ref_id)
                         mini_ctg_side_pos_dict[read_to_ctg_ref_key] = ctg_ref_pos
                         mini_ctg_side_cigar_dict[read_to_ctg_ref_key] = ctg_ref_cigar
 
@@ -4018,10 +3756,9 @@ def link_16s(args, config_dict):
             with open(free_living_ctg_ref_file_no_linked) as flcrfnl:
                 for free_living_read_ctg in flcrfnl:
                     free_living_read_ctg_split = free_living_read_ctg.strip().split('\t')
-                    read_id = free_living_read_ctg_split[0]
-                    read_id_base = '.'.join(read_id.split('.')[:-1])
-                    read_strand = read_id.split('.')[-1]
-                    read_ctg_refs = free_living_read_ctg_split[1].split(',')
+                    read_id_base = free_living_read_ctg_split[0]
+                    read_strand = free_living_read_ctg_split[1]
+                    read_ctg_refs = free_living_read_ctg_split[2].split(',')
                     read_mini_mp = MappingRecord_dict_mini.get(read_id_base, None)
                     if read_mini_mp is not None:
 
@@ -4069,7 +3806,7 @@ def link_16s(args, config_dict):
                                 mini_to_mag_LinkingRecord_dict[mini_to_ctg_key_with_l_r].min_dist_to_end_l.append(min_dist_to_mini_end)
 
                                 # get ctg side cigar here
-                                read_to_ctg_ref_key = '%s__ctg__%s' % (read_id, each_ctg_ref)
+                                read_to_ctg_ref_key = (read_id_base, read_strand, each_ctg_ref)
                                 current_linking_cigar_ctg_side = mini_ctg_side_cigar_dict.get(read_to_ctg_ref_key, None)
                                 current_linking_pos_ctg_side = mini_ctg_side_pos_dict.get(read_to_ctg_ref_key, None)
                                 if current_linking_cigar_ctg_side is not None:
@@ -4197,10 +3934,9 @@ def link_16s(args, config_dict):
                 for free_living_read_16s in fl16rfnl:
                     free_living_read_16s_split = free_living_read_16s.strip().split('\t')
                     if len(free_living_read_16s_split) > 1:
-                        read_id = free_living_read_16s_split[0]
-                        read_id_base = '.'.join(read_id.split('.')[:-1])
-                        read_strand = read_id.split('.')[-1]
-                        read_16s_refs = free_living_read_16s_split[1].split(',')
+                        read_id_base = free_living_read_16s_split[0]
+                        read_strand = free_living_read_16s_split[1]
+                        read_16s_refs = free_living_read_16s_split[2].split(',')
                         read_mini_mp = MappingRecord_dict_mini.get(read_id_base, None)
                         read_16s_mp  = MappingRecord_dict[read_id_base]
                         if read_mini_mp is not None:
@@ -4420,10 +4156,8 @@ def link_16s(args, config_dict):
                     vis_reads_file_r1_handle = open(vis_reads_file_r1, 'w')
                     vis_reads_file_r2_handle = open(vis_reads_file_r2, 'w')
                     for each_linking_read in linking_reads:
-                        linking_r1_id = '%s.1' % each_linking_read
-                        linking_r1_seq = flk_both_read_seq_dict[linking_r1_id]
-                        linking_r2_id = '%s.2' % each_linking_read
-                        linking_r2_seq = flk_both_read_seq_dict[linking_r2_id]
+                        linking_r1_id, linking_r1_seq = flk_both_read_seq_dict[(each_linking_read, '1')]
+                        linking_r2_id, linking_r2_seq = flk_both_read_seq_dict[(each_linking_read, '2')]
                         vis_reads_file_r1_handle.write('>%s\n' % linking_r1_id)
                         vis_reads_file_r1_handle.write('%s\n'  % linking_r1_seq)
                         vis_reads_file_r2_handle.write('>%s\n' % linking_r2_id)
@@ -4473,10 +4207,8 @@ def link_16s(args, config_dict):
                     vis_reads_file_r1_handle = open(vis_reads_file_r1, 'w')
                     vis_reads_file_r2_handle = open(vis_reads_file_r2, 'w')
                     for each_linking_read in linking_reads:
-                        linking_r1_id = '%s.1' % each_linking_read
-                        linking_r1_seq = flk_both_read_seq_dict[linking_r1_id]
-                        linking_r2_id = '%s.2' % each_linking_read
-                        linking_r2_seq = flk_both_read_seq_dict[linking_r2_id]
+                        linking_r1_id, linking_r1_seq = flk_both_read_seq_dict[(each_linking_read, '1')]
+                        linking_r2_id, linking_r2_seq = flk_both_read_seq_dict[(each_linking_read, '2')]
                         vis_reads_file_r1_handle.write('>%s\n' % linking_r1_id)
                         vis_reads_file_r1_handle.write('%s\n' % linking_r1_seq)
                         vis_reads_file_r2_handle.write('>%s\n' % linking_r2_id)
@@ -4768,7 +4500,6 @@ if __name__ == '__main__':
 
     # Parameters for estimating 16S copy number
     link_16s_parser_get_cn.add_argument('-skip_cn',             required=False, action="store_true",                    help='Skip calculating the copy number of linked 16S rRNA genes')
-    link_16s_parser_get_cn.add_argument('-r16s',                required=False,                                         help='matam_16s_reads')
     link_16s_parser_get_cn.add_argument('-subsample_pct',       required=False, metavar='', type=float, default=25,     help='used a fraction of reads for MAG coverage estimation (in percentage), default:25')
     link_16s_parser_get_cn.add_argument('-min_insert_size_16s', required=False, metavar='',             default=-1000,  help='min_insert_size_16s')
     link_16s_parser_get_cn.add_argument('-ignore_gc_bias',      required=False, metavar='', type=int,   default=150,    help='ignore GC bias')
@@ -4785,7 +4516,7 @@ if __name__ == '__main__':
 
     # For debugging
     link_16s_parser_debug.add_argument('-test_mode',        required=False, action="store_true",                            help='Only for debugging, do not provide')
-    link_16s_parser_debug.add_argument('-sorted_sam16s',    required=False, metavar='',             default=None,           help='Mapping of input reads to 16S, need to be sorted by read names')
+    link_16s_parser_debug.add_argument('-sorted_sam16s',    required=False, metavar='',             default=None,           help='Name-sorted paired-end SAM; mate identity must be encoded in FLAG 0x40/0x80')
     link_16s_parser_debug.add_argument('-vis_all',          required=False, action="store_true",                            help='Vis all linkages, including those filtered out')
     link_16s_parser_debug.add_argument('-ref_16s_cp_num',   required=False, metavar='',             default=None,           help='Copy number of 16S in reference genomes')
 

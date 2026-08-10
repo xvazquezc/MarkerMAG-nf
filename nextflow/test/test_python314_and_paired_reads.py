@@ -26,6 +26,7 @@ def load_script(name):
 
 ASSEMBLE = load_script("markermag_matam_assemble_pct")
 FILTER = load_script("markermag_matam_filter")
+PAIRING = importlib.import_module("MarkerMAG.read_pairing")
 
 
 @contextmanager
@@ -174,7 +175,6 @@ class PythonCompatibilityTests(unittest.TestCase):
                     "MarkerMAG.link_16s",
                     "MarkerMAG.matam_16s",
                     "MarkerMAG.polish_16s",
-                    "MarkerMAG.rename_reads",
                     "MarkerMAG.subsample_reads",
                     "MarkerMAG.uclust_16s"):
                 with self.subTest(module=module_name):
@@ -182,25 +182,33 @@ class PythonCompatibilityTests(unittest.TestCase):
         finally:
             sys.path.remove(str(REPOSITORY))
 
-    def test_gzip_rename_works_with_multiprocessing_context(self):
-        rename_reads = importlib.import_module("MarkerMAG.rename_reads")
+    def test_sam_flags_identify_mates_without_name_suffixes(self):
+        r1_id, r1_mate = PAIRING.sam_read_id_and_mate(
+            ["A00123:42:H7L2YDSX7:1:1101:1000:1000", "65"])
+        r2_id, r2_mate = PAIRING.sam_read_id_and_mate(
+            ["A00123:42:H7L2YDSX7:1:1101:1000:1000", "129"])
+        self.assertEqual(r1_id, r2_id)
+        self.assertEqual((r1_mate, r2_mate), ("1", "2"))
+
+    def test_sam_record_without_one_mate_flag_is_rejected(self):
+        for flag in ("0", "192"):
+            with self.subTest(flag=flag), self.assertRaisesRegex(
+                    ValueError, "FLAG 0x40/0x80"):
+                PAIRING.sam_read_id_and_mate(["read", flag])
+
+    def test_streaming_extraction_preserves_original_gzip_read_ids(self):
         with tempfile.TemporaryDirectory() as directory:
             directory = Path(directory)
-            forward = directory / "input_R1.fastq.gz"
-            reverse = directory / "input_R2.fastq.gz"
-            write_fastq(forward, ["old-f1", "old-f2"])
-            write_fastq(reverse, ["old-r1", "old-r2"])
-            with working_directory(directory):
-                rename_reads.rename_reads({
-                    "r1": str(forward), "r2": str(reverse),
-                    "p": "renamed", "fq": True, "t": 2,
-                })
-            self.assertEqual(
-                read_ids(directory / "renamed_R1.fastq"),
-                ["renamed_1.1", "renamed_2.1"])
-            self.assertEqual(
-                read_ids(directory / "renamed_R2.fastq"),
-                ["renamed_1.2", "renamed_2.2"])
+            source = directory / "input_R1.fastq.gz"
+            output = directory / "selected_R1.fastq.gz"
+            write_fastq(source, ["instrument/1", "another/1"])
+
+            written = PAIRING.extract_reads_by_pair_id(
+                source, {"instrument"}, output)
+
+            self.assertEqual(written, 1)
+            self.assertEqual(read_ids(output), ["instrument/1"])
+            self.assertEqual(PAIRING.canonical_read_id("sample.1"), "sample.1")
 
 
 if __name__ == "__main__":

@@ -35,7 +35,6 @@ def print_main_help():
 
     link             ->  link MAGs to 16S rRNA genes
     get_cp_num       ->  estimate copy number of 16S rRNA genes
-    rename_reads     ->  rename paired short reads
     matam_16s        ->  reconstruct 16S rRNA genes with Matam
     uclust_16s       ->  cluster 16S rRNA genes with Usearch
     polish_16s       ->  trim non-16S ends from sequences using Barrnap
@@ -106,7 +105,6 @@ if __name__ == '__main__':
 
         # Parameters for estimating 16S copy number
         link_16s_parser_get_cn.add_argument('-skip_cn',             required=False, action="store_true",                    help='Skip calculating the copy number of linked 16S rRNA genes')
-        link_16s_parser_get_cn.add_argument('-r16s',                required=False,                                         help='matam_16s_reads')
         link_16s_parser_get_cn.add_argument('-subsample_pct',       required=False, metavar='', type=float, default=25,     help='used a fraction of reads for MAG coverage estimation (in percentage), default:25')
         link_16s_parser_get_cn.add_argument('-min_insert_size_16s', required=False, metavar='', default=-1000,              help='min_insert_size_16s, (default: %(default)s)')
         link_16s_parser_get_cn.add_argument('-ignore_gc_bias',      required=False, metavar='', type=int,   default=150,    help='ignore GC bias, (default: %(default)s)')
@@ -123,7 +121,7 @@ if __name__ == '__main__':
 
         # For debugging
         link_16s_parser_debug.add_argument('-test_mode',        required=False, action="store_true",                            help='Only for debugging, do not provide')
-        link_16s_parser_debug.add_argument('-sorted_sam16s',    required=False, metavar='',             default=None,           help='Mapping of input reads to 16S')
+        link_16s_parser_debug.add_argument('-sorted_sam16s',    required=False, metavar='',             default=None,           help='Name-sorted paired-end SAM; mate identity must be encoded in FLAG 0x40/0x80')
         link_16s_parser_debug.add_argument('-vis_all',          required=False, action="store_true",                            help='Vis all linkages, including those filtered out')
         link_16s_parser_debug.add_argument('-ref_16s_cp_num',   required=False, metavar='',             default=None,           help='Copy number of 16S in reference genomes')
 
@@ -137,7 +135,6 @@ if __name__ == '__main__':
         get_16s_copy_num_parser.add_argument('-p',                      required=True,                                          help='output prefix')
         get_16s_copy_num_parser.add_argument('-r1',                     required=False, metavar='',                             help='paired reads r1 (fasta format)')
         get_16s_copy_num_parser.add_argument('-r2',                     required=False, metavar='',                             help='paired reads r2 (fasta format)')
-        get_16s_copy_num_parser.add_argument('-r16s',                   required=False, metavar='', default=None,               help='matam_16s_reads')
         get_16s_copy_num_parser.add_argument('-linkages',               required=False, metavar='',                             help='identified_linkage_gnm_level')
         get_16s_copy_num_parser.add_argument('-marker',                 required=False, metavar='',                             help='markers clustered at 99')
         get_16s_copy_num_parser.add_argument('-mag',                    required=False, metavar='', default=None,               help='MAG folder')
@@ -155,7 +152,7 @@ if __name__ == '__main__':
         get_16s_copy_num_parser.add_argument('-both_pair_mapped',       required=False, action='store_true',                    help='both_pair_mapped')
         get_16s_copy_num_parser.add_argument('-mag_cov_gc',             required=False, default=None,                           help='mag_depth_gc txt file')
         get_16s_copy_num_parser.add_argument('-mag_gc_bias',            required=False, default=None,                           help='mag_gc_bias folder')
-        get_16s_copy_num_parser.add_argument('-sam_16s_sorted_by_read', required=False, default=None,                           help='read_to_16s_sam')
+        get_16s_copy_num_parser.add_argument('-sam_16s_sorted_by_read', required=False, default=None,                           help='Name-sorted paired-end SAM; mate identity must be encoded in FLAG 0x40/0x80')
         get_16s_copy_num_parser.add_argument('-ref_16s_cp_num',         required=False, default=None,                           help='provided_cp_num_txt')
         get_16s_copy_num_parser.add_argument('-t',                      required=False, type=int, default=1,                    help='number of threads')
         get_16s_copy_num_parser.add_argument('-force',                  required=False, action="store_true",                    help='Force overwrite existing results')
@@ -165,16 +162,6 @@ if __name__ == '__main__':
             args[each_key] = config_dict[each_key]
         get_cp_num.get_16s_copy_num(args)
 
-    elif sys.argv[1] == 'rename_reads':
-        from MarkerMAG import rename_reads
-        rename_reads_parser = subparsers.add_parser('rename_reads', description='Rename reads', usage=rename_reads.rename_reads_usage)
-        rename_reads_parser.add_argument('-r1',  required=True, type=str,               help='forward reads, fasta format')
-        rename_reads_parser.add_argument('-r2',  required=True, type=str,               help='reverse reads, fasta format')
-        rename_reads_parser.add_argument('-p',   required=True, type=str,               help='prefix of output file and read id')
-        rename_reads_parser.add_argument('-fq',  required=False, action="store_true",   help='rename reads with quality score')
-        rename_reads_parser.add_argument('-t',   required=False, type=int, default=1,   help='number of threads, default: 1')
-        args = vars(parser.parse_args())
-        rename_reads.rename_reads(args)
 
     elif sys.argv[1] == 'matam_16s':
         from MarkerMAG import matam_16s

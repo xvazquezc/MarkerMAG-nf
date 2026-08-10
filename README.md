@@ -34,7 +34,6 @@ MarkerMAG modules
     
 1. Supplementary modules
 
-    + `rename_reads`: rename paired reads ([manual](doc/README_rename_reads.md))
     + `matam_16s`: assemble 16S rRNA genes with Matam ([manual](doc/README_matam_16s.md))
     + `uclust_16s`: cluster 16S rRNA gene sequences with Usearch
     + `polish_16s`: trim non-16S sequence ends with Barrnap
@@ -91,8 +90,9 @@ How to run
    2. A set of 16S rRNA gene sequences (either user-provided or generated with the `matam_16s` module) 
    3. Input reads need to be **quality-filtered** and in fasta format (no quality score).
    
-+ :warning: MarkerMAG is designed to work with paired short-read data (i.e. Illumina). It assumes the id of reads in pair in the format of `XXXX.1` and `XXXX.2`. The only difference is the last character.
-   You can rename your reads with MarkerMAG's `rename_reads` module ([manual](doc/README_rename_reads.md)). 
++ MarkerMAG is designed for paired short-read data such as Illumina R1/R2
+  files. Read identifiers are preserved. Mate identity is obtained from paired
+  file position and SAM first/second-mate flags rather than name suffixes.
 
 + Although you can use your preferred tool to reconstruct 16S rRNA gene sequences from the metagenomic dataset, 
    MarkerMAG does have a supplementary module (`matam_16s`) to reconstruct 16S rRNA genes. 
@@ -144,14 +144,25 @@ With `-profile conda`, Nextflow creates the single pinned environment from
         --outdir results
 
 `NXF_CONDA_CACHEDIR` can be used instead of `--conda_cache_dir`. The environment
-uses Python 3.14 and the runtime dependencies required by the updated
-[xvazquezc/matam](https://github.com/xvazquezc/matam) fork. Until that fork is
-published as a versioned Conda package, build it from source and provide its
-`bin/matam_assembly.py` with `--matam_executable`. The older Bioconda
-MATAM 1.6.2 package does not provide the separate paired-read interface.
+uses Python 3.14 and installs the updated
+[xvazquezc/matam](https://github.com/xvazquezc/matam) fork into the same
+`markermag-nf` prefix. The fork is a source distribution rather than a
+pip/Conda package, so use the provided bootstrap script when creating or
+updating the named environment:
 
-    conda env create -f nextflow/environment.yml
+    bash nextflow/create_conda_environment.sh
     conda activate markermag-nf
+    command -v matam_assembly.py
+
+The installer clones MATAM under `$CONDA_PREFIX/opt/matam`, compiles its
+components, and exposes its commands from `$CONDA_PREFIX/bin`. It is
+idempotent and can update an existing environment. To pin a particular fork
+commit or tag:
+
+    MATAM_REF=<commit-or-tag> bash nextflow/create_conda_environment.sh
+
+Docker builds use the same installer. The older Bioconda MATAM package is not
+installed because it lacks the separate paired-read interface.
 
 ### Samplesheet
 
@@ -322,7 +333,7 @@ Output files
 4. Visualization of individual linkage.
   
    MarkerMAG supports the visualization of identified linkages (needs [Tablet](https://ics.hutton.ac.uk/tablet/)). 
-   Output files for visualization ([example](doc/vis_folder)) can be found in the [Prefix]_linkage_visualization_rd1/2 folders. 
+   Output files for visualization can be found in the [Prefix]_linkage_visualization_rd1/2 folders.
    You can visualize how the linking reads are aligned to MAG contig and 16S rRNA gene by double-clicking the corresponding ".tablet" file. 
    Fifty Ns are added between the linked MAG contig and 16S rRNA gene.
  

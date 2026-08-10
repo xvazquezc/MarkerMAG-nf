@@ -6,7 +6,7 @@ import re
 from Bio import SeqIO
 
 
-_MATE_SUFFIX = re.compile(r"(?:/|\.)(?:1|2)$")
+_MATE_SUFFIX = re.compile(r"/(?:1|2)$")
 
 
 def canonical_read_id(read_id):
@@ -28,7 +28,7 @@ def sam_read_id_and_mate(fields):
         raise ValueError(
             f"SAM record {fields[0]!r} does not identify exactly one mate "
             "with FLAG 0x40/0x80")
-    return canonical_read_id(fields[0]), 1 if is_r1 else 2
+    return canonical_read_id(fields[0]), "1" if is_r1 else "2"
 
 
 def infer_sequence_format(path):
@@ -53,7 +53,7 @@ def extract_reads_by_pair_id(input_path, pair_ids, output_path, sequence_format=
     output_format = "fastq" if input_format == "fastq" else "fasta-2line"
     written = 0
     with open_sequences(input_path) as input_handle, \
-            open(output_path, "w", encoding="utf-8") as output_handle:
+            open_sequences(output_path, "wt") as output_handle:
         for record in SeqIO.parse(input_handle, input_format):
             if canonical_read_id(record.id) in wanted:
                 SeqIO.write(record, output_handle, output_format)
