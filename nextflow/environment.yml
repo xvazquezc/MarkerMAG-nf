@@ -27,10 +27,9 @@ dependencies:
   - usearch=11         # uclust_16s clustering
   - vsearch>=2.21      # open-source clustering alternative
 
-  # Build/runtime dependencies of https://github.com/xvazquezc/matam.
-  # The source itself is installed into this environment by install_matam.sh;
-  # environment.yml cannot express a non-Python Git source build. Do not add
-  # Bioconda's upstream MATAM, which lacks the separate paired-read interface.
+  # Build/runtime dependencies of https://github.com/xvazquezc/matam. Build
+  # the fork manually after activating this environment, as documented in the
+  # repository README. The incompatible upstream MATAM package is not installed.
   - coreutils
   - curl
   - sed

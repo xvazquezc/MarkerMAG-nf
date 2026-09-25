@@ -86,13 +86,6 @@ def help_message() {
       -profile hpc           HPC scheduler (PBS/SLURM — edit conf/hpc.config)
       -profile docker        Docker container
       -profile singularity   Singularity container
-      -profile conda         Conda environment
-      --conda_cache_dir      Shared Conda environment cache
-                             [default: ${params.conda_cache_dir}]
-
-      --conda_environment Existing MATAM-inclusive Conda prefix
-                          [default: MARKERMAG_CONDA_PREFIX, when set]
-
     Example:
         nextflow run main.nf \\
             -profile singularity,hpc \\

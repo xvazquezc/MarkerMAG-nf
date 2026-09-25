@@ -53,26 +53,31 @@ git clone https://github.com/xvazquezc/MarkerMAG-nf
 git clone --recursive https://github.com/xvazquezc/matam
 ```
 
-Install MarkerMAG-nf conda environment (it'll also install MATAM's deps):
+Create and activate the `markermag-nf` environment. This is an explicit user
+step; Nextflow will not create or modify the environment:
+
 ```bash
 cd MarkerMAG-nf
-conda env create --file nextflow/environment.yaml
+conda env create --file nextflow/environment.yml
 conda activate markermag-nf
-cd ../matam
-./build
 ```
 
-Finally, to be sure MATAM's binaries are reachable whenever we load the repo (be sure you are still within MarkerMAG-nf environment and within your cloned MATAM repo to make it easier):
-```bash
-cat <<EOF >${CONDA_PREFIX}/etc/conda/activate.d/activate-matam.sh
-export _OLD_PATH="\$PATH"
-export PATH="$(pwd)/bin:\$PATH"
-EOF
+Build the MATAM fork with that environment and expose its commands from the
+same Conda prefix:
 
-cat <<EOF >${CONDA_PREFIX}/etc/conda/deactivate.d/deactivate-matam.sh
-export PATH=\$( echo "\$_OLD_PATH" | sed "s|\$CONDA_PREFIX/bin:||" )
-unset _OLD_PATH
-EOF
+```bash
+cd ../matam
+python build.py
+for executable in "$PWD"/bin/*; do
+    ln -sfn "$executable" "$CONDA_PREFIX/bin/$(basename "$executable")"
+done
+```
+
+Verify the installation before launching the workflow:
+
+```bash
+command -v MarkerMAG
+command -v matam_assembly.py
 ```
 
 
@@ -123,41 +128,14 @@ polished, and linked.
 ### Requirements
 
 + Nextflow 23.10 or newer.
-+ Conda when using the `conda` execution profile, or a MarkerMAG environment
-  containing the command-line dependencies for the `standard` profile.
++ The user-created and activated `markermag-nf` Conda environment described
+  under “How to install”, containing all workflow dependencies.
 + A licensed Usearch executable available on `PATH`.
 + MATAM and an indexed MATAM reference database when using the assembly route.
 
-With `-profile conda`, Nextflow creates the single pinned environment from
-`nextflow/environment.yml` and reuses it automatically. The default cache is
-`nextflow/.conda`; on an HPC system, point it to durable shared storage:
-
-    nextflow run nextflow/main.nf \
-        -profile conda \
-        --conda_cache_dir /shared/project/nextflow/conda \
-        --input samplesheet.csv \
-        --outdir results
-
-`NXF_CONDA_CACHEDIR` can be used instead of `--conda_cache_dir`. The environment
-uses Python 3.14 and installs the updated
-[xvazquezc/matam](https://github.com/xvazquezc/matam) fork into the same
-`markermag-nf` prefix. The fork is a source distribution rather than a
-pip/Conda package, so use the provided bootstrap script when creating or
-updating the named environment:
-
-    bash nextflow/create_conda_environment.sh
-    conda activate markermag-nf
-    command -v matam_assembly.py
-
-The installer clones MATAM under `$CONDA_PREFIX/opt/matam`, compiles its
-components, and exposes its commands from `$CONDA_PREFIX/bin`. It is
-idempotent and can update an existing environment. To pin a particular fork
-commit or tag:
-
-    MATAM_REF=<commit-or-tag> bash nextflow/create_conda_environment.sh
-
-Docker builds use the same installer. The older Bioconda MATAM package is not
-installed because it lacks the separate paired-read interface.
+The workflow never creates, updates, or activates Conda environments. Activate
+`markermag-nf` before starting Nextflow and ensure scheduler jobs inherit its
+`PATH`.
 
 ### Samplesheet
 
@@ -184,7 +162,6 @@ sequences are both populated, `16s_fasta` takes precedence.
 
     cd nextflow
     nextflow run main.nf \
-        -profile conda \
         --input assets/samplesheet.csv \
         --skip_matam \
         --outdir results
@@ -198,7 +175,6 @@ without running MAG–16S linking or copy-number estimation:
 
     cd nextflow
     nextflow run main.nf \
-        -profile conda \
         --reconstruct_only \
         --input samplesheet.csv \
         --matam_db /path/to/indexed/SILVA_138_SSURef_NR95 \
@@ -224,7 +200,6 @@ files are still required for the later MarkerMAG linking stage.
 
     cd nextflow
     nextflow run main.nf \
-        -profile conda \
         --input assets/samplesheet.csv \
         --matam_db /path/to/indexed/SILVA_138_SSURef_NR95 \
         --matam_pcts 1,5,10,25,50,75,100 \
@@ -239,7 +214,6 @@ Paired files are subsampled together by record position before each MATAM task.
 
     cd nextflow
     nextflow run main.nf \
-        -profile conda \
         --input assets/samplesheet.csv \
         --matam_db /path/to/indexed/SILVA_138_SSURef_NR95 \
         --matam_pcts 1,5,10,25,50,75,100 \
@@ -262,12 +236,12 @@ the fork explicitly.
 | `standard` | Local execution using tools already on `PATH` |
 | `test` | Small local resources and the supplied synthetic test |
 | `hpc` | PBS Pro by default; edit [`conf/hpc.config`](nextflow/conf/hpc.config) for the local scheduler and queue |
-| `conda` | Build or reuse the single pinned `environment.yml` environment |
 | `docker` | Run with the local `markermag:latest` image |
 | `singularity` | Run from `docker://markermag:latest` |
 
-Profiles can be combined, for example `-profile conda,hpc`. Build the Docker
-image from the repository root:
+Use `-profile hpc` for scheduler execution. Docker and Singularity remain
+optional, explicitly built container runtimes. Build the Docker image from the
+repository root:
 
     docker build -f nextflow/Dockerfile -t markermag:latest .
 
@@ -291,7 +265,7 @@ reference:
     cd nextflow
     python test/generate_test_data.py
     nextflow run main.nf \
-        -profile test,conda \
+        -profile test \
         --input test/samplesheet.csv \
         --outdir test/results
 
