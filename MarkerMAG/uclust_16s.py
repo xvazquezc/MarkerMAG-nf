@@ -24,7 +24,7 @@ from Bio import SeqIO
 uclust_16S_usage = '''
 ========================== uclust_16S example commands ==========================
 
-module load usearch/10.0.240
+module load vsearch
 MarkerMAG uclust_16S -in combined_16S.fasta -i 1 -out dereplicated_16S.fasta
 
 =================================================================================
@@ -98,9 +98,8 @@ def uclust_16S(args):
     default_centroids_to_be_ignored = '%s/%s_default_centroids.%s'   % (fasta_out_path, fasta_out_basename, fasta_out_extension)
     cluster_to_member_file          = '%s/%s.uc.reorganised.txt'     % (fasta_out_path, fasta_out_basename)
 
-    # run cluster_fast
-    uclust_cmd = 'usearch -cluster_fast %s -id %s -query_cov 0.8 -target_cov 0.8 -centroids %s -uc %s -sort length -quiet' % (fasta_in, iden_cutoff, default_centroids_to_be_ignored, uclust_output_table)
-    uclust_cmd = 'usearch -cluster_fast %s -id %s -centroids %s -uc %s -sort length -quiet' % (fasta_in, iden_cutoff, default_centroids_to_be_ignored, uclust_output_table)
+    # VSEARCH sorts --cluster_fast input by decreasing length.
+    uclust_cmd = 'vsearch --cluster_fast %s --id %s --centroids %s --uc %s --quiet' % (fasta_in, iden_cutoff, default_centroids_to_be_ignored, uclust_output_table)
     print(uclust_cmd)
     os.system(uclust_cmd)
 

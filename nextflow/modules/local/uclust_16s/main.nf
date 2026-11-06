@@ -1,4 +1,4 @@
-// UCLUST_16S — clusters 16S sequences with USEARCH cluster_fast.
+// UCLUST_16S — clusters 16S sequences with VSEARCH cluster_fast.
 // Used after COMBINE_MATAM (MATAM path) and optionally on user-provided 16S.
 // Emits the representative (longest per cluster) fasta plus the .uc table.
 

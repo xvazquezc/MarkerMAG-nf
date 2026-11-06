@@ -195,9 +195,10 @@ def check_inputs(args):
 
 def matam_16s(args):
     raw_pair, extracted_pair = check_inputs(args)
-    for executable in (args["matam"], args["usearch"]):
-        if which(executable) is None and not os.path.isfile(executable):
-            raise FileNotFoundError(f"Executable not found: {executable}")
+    if which(args["matam"]) is None and not os.path.isfile(args["matam"]):
+        raise FileNotFoundError(f"Executable not found: {args['matam']}")
+    if which("vsearch") is None:
+        raise FileNotFoundError("Executable not found on PATH: vsearch")
 
     output_prefix = args["p"]
     workdir = f"{output_prefix}_Matam16S_wd"
@@ -289,9 +290,8 @@ def matam_16s(args):
     members = os.path.join(
         workdir, f"{output_prefix}_assembled_16S_uclust_{args['i']}.txt")
     subprocess.run([
-        args["usearch"], "-cluster_fast", combined, "-id", str(args["i"]),
-        "-centroids", clustered, "-uc", uclust_table, "-sort", "length",
-        "-quiet",
+        "vsearch", "--cluster_fast", combined, "--id", str(args["i"]),
+        "--centroids", clustered, "--uc", uclust_table, "--quiet",
     ], check=True)
     parse_uclust_output(uclust_table, members)
     report_and_log(f"Assemblies written to {clustered}",
@@ -315,5 +315,4 @@ if __name__ == "__main__":
     parser.add_argument("-force", action="store_true")
     parser.add_argument("-quiet", action="store_true")
     parser.add_argument("-matam", default="matam_assembly.py")
-    parser.add_argument("-usearch", default="usearch")
     matam_16s(vars(parser.parse_args()))

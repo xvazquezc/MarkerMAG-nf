@@ -32,7 +32,6 @@
       module load hmmer/3.2.1
       module load bedtools/2.27.1
       module load barrnap/0.9
-      module load usearch/11.0.667
+      module load vsearch
       cd /srv/scratch/zID
       MarkerMAG link -p Soil -marker Soil_16S.fa -mag Soil_MAGs -x fa -r1 R1.fa -r2 R2.fa -t 12
-      

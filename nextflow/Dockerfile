@@ -29,9 +29,4 @@ RUN git clone --recursive "${MATAM_REPOSITORY}" /opt/matam \
 
 ENV PATH="/opt/matam/bin:/opt/conda/envs/markermag-nf/bin:${PATH}"
 
-# ── NOTE: usearch is not freely redistributable.  ────────────────────────────
-# Mount your licensed binary at runtime:
-#   docker run -v /path/to/usearch:/usr/local/bin/usearch ...
-# or pre-copy it into a derived image.
-
 WORKDIR /data

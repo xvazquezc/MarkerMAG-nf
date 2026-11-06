@@ -17,7 +17,7 @@ Copy number of 16S rRNA genes in reference genomes are provided in the bottom ro
 ### Dependencies
  [SortMeRNA 7.x](https://github.com/sortmerna/sortmerna),
  [the paired-read MATAM fork](https://github.com/xvazquezc/matam), and
- [Usearch](https://www.drive5.com/usearch/).
+ [VSEARCH](https://github.com/torognes/vsearch).
 
 Install the same SortMeRNA major version as MATAM (`>=7,<8`). MATAM databases
 must be indexed with that installed version; indexes made by SortMeRNA 4 or 5

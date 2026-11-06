@@ -35,7 +35,7 @@ MarkerMAG modules
 1. Supplementary modules
 
     + `matam_16s`: assemble 16S rRNA genes with Matam ([manual](doc/README_matam_16s.md))
-    + `uclust_16s`: cluster 16S rRNA gene sequences with Usearch
+    + `uclust_16s`: cluster 16S rRNA gene sequences with VSEARCH
     + `polish_16s`: trim non-16S sequence ends with Barrnap
     + `barrnap_16s`: identify 16S rRNA genes from genomes/MAGs with Barrnap ([manual](doc/README_barrnap_16s.md))
 
@@ -134,7 +134,7 @@ same seed to reproduce a previous set of subsamples.
 + Nextflow 23.10 or newer.
 + The user-created and activated `markermag-nf` Conda environment described
   under “How to install”, containing all workflow dependencies.
-+ A licensed Usearch executable available on `PATH`.
++ VSEARCH available on `PATH` from the activated environment.
 + MATAM and an indexed MATAM reference database when using the assembly route.
 
 The workflow never creates, updates, or activates Conda environments. Activate
@@ -251,7 +251,7 @@ repository root:
 
 Per-sample outputs are written beneath `--outdir/<sample>/`:
 
-+ `uclust_16s/`: clustered 16S FASTA, Usearch `.uc` table, and membership table.
++ `uclust_16s/`: clustered 16S FASTA, VSEARCH `.uc` table, and membership table.
 + `polish_16s/`: Barrnap-polished 16S FASTA.
 + `link_16s/`: MarkerMAG linkage tables, logs, plots, and working outputs.
 + `get_cp_num/`: standalone copy-number outputs when enabled.

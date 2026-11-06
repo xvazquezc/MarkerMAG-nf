@@ -1324,7 +1324,7 @@ def qc_16s(file_in, file_out_ffn, uclust_op_fasta, uclust_op_uc, uclust_op_txt, 
 
     # cluster 16S
     if no_cluster is False:
-        uclust_cmd = 'usearch -cluster_fast %s -id %s -centroids %s -uc %s -sort length -quiet' % (file_out_ffn, (uclust_iden_cutoff/100), uclust_op_fasta, uclust_op_uc)
+        uclust_cmd = 'vsearch --cluster_fast %s --id %s --centroids %s --uc %s --quiet' % (file_out_ffn, (uclust_iden_cutoff/100), uclust_op_fasta, uclust_op_uc)
         os.system(uclust_cmd)
 
         # get readable cluster results
@@ -2278,7 +2278,7 @@ def link_16s(args, config_dict):
     ################################################ check dependencies ################################################
 
     # check whether executables exist
-    program_list = ['barrnap', 'usearch', 'makeblastdb', 'blastn', 'bowtie2-build', 'bowtie2', 'samtools', 'seqtk', 'spades.py']
+    program_list = ['barrnap', 'vsearch', 'makeblastdb', 'blastn', 'bowtie2-build', 'bowtie2', 'samtools', 'seqtk', 'spades.py']
     if skip_calculate_copy_num is False:
         program_list.append('hmmscan')
     not_detected_programs = []
