@@ -59,3 +59,47 @@ def extract_reads_by_pair_id(input_path, pair_ids, output_path, sequence_format=
                 SeqIO.write(record, output_handle, output_format)
                 written += 1
     return written
+
+
+def _read_fastq_record(handle, source):
+    """Read one 4-line FASTQ record; None at end of file."""
+    record = [handle.readline() for _ in range(4)]
+    if not record[0]:
+        if any(record[1:]):
+            raise ValueError(f"Truncated FASTQ record in {source}")
+        return None
+    if any(not line for line in record):
+        raise ValueError(f"Truncated FASTQ record in {source}")
+    if not record[0].startswith("@") or not record[2].startswith("+"):
+        raise ValueError(f"Malformed FASTQ record in {source}")
+    return record
+
+
+def copy_fastq_pair(forward_input, reverse_input, forward_output, reverse_output):
+    """Copy an R1/R2 FASTQ pair, checking that both files stay in step.
+
+    Mates are matched by position and must share a canonical read ID, so
+    both CASAVA (identical IDs) and legacy /1, /2 naming are accepted.
+    Returns the number of pairs copied.
+    """
+    pairs = 0
+    with open_sequences(forward_input) as forward_source, \
+            open_sequences(reverse_input) as reverse_source, \
+            open_sequences(forward_output, "wt") as forward, \
+            open_sequences(reverse_output, "wt") as reverse:
+        while True:
+            forward_record = _read_fastq_record(forward_source, forward_input)
+            reverse_record = _read_fastq_record(reverse_source, reverse_input)
+            if forward_record is None and reverse_record is None:
+                return pairs
+            if forward_record is None or reverse_record is None:
+                raise ValueError(
+                    "Paired FASTQ files have different record counts: "
+                    f"{forward_input}, {reverse_input}")
+            if canonical_read_id(forward_record[0][1:]) != canonical_read_id(reverse_record[0][1:]):
+                raise ValueError(
+                    "Paired FASTQ records are out of step: "
+                    f"{forward_record[0].strip()} vs {reverse_record[0].strip()}")
+            forward.writelines(forward_record)
+            reverse.writelines(reverse_record)
+            pairs += 1

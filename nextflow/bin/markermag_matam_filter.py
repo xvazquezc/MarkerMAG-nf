@@ -3,15 +3,16 @@
 Wrapper for the MATAM --filter_only step (16S read extraction).
 
 Passes forward and reverse reads to MATAM as separate files, runs
-matam_assembly.py --filter_only, then splits MATAM's interleaved aligned
-paired FASTQ into predictable R1/R2 outputs.
+matam_assembly.py --filter_only, and copies the selected read pairs that MATAM
+publishes as separate R1/R2 files to predictable outputs, checking that the
+two files stay in step.
 
 Called by the MATAM_FILTER Nextflow process.
 """
 
 import os
+import re
 import sys
-import glob
 import gzip
 import argparse
 import subprocess
@@ -25,32 +26,24 @@ def sequence_suffix(path):
     raise ValueError(f"MATAM paired reads must be FASTQ: {path}")
 
 
-def find_filtered_interleaved(workdir):
-    """Find MATAM's paired SortMeRNA FASTX output.
+# matam_assembly.py publishes the read pairs selected by its mapping step as
+# <out_dir>/marker_reads_R1.fq[.gz] and <out_dir>/marker_reads_R2.fq[.gz].
+MATAM_SELECTED_PAIR = ("marker_reads_R1", "marker_reads_R2")
 
-    MATAM passes an explicit ``--aligned`` prefix to SortMeRNA.  With
-    ``--paired_in`` and no ``--out2``, SortMeRNA v7 writes one interleaved
-    FASTQ at that prefix.  The ``.sortmerna_vs_`` segment is part of MATAM's
-    own output naming scheme.
-    """
-    patterns = (
-        "**/*.sortmerna_vs_*.fastq",
-        "**/*.sortmerna_vs_*.fastq.gz",
-        "**/*.sortmerna_vs_*.fq",
-        "**/*.sortmerna_vs_*.fq.gz",
-    )
-    matches = sorted({
-        path
-        for pattern in patterns
-        for path in glob.glob(os.path.join(workdir, pattern), recursive=True)
-        if os.path.isfile(path)
-    })
-    if len(matches) != 1:
-        raise RuntimeError(
-            "Expected exactly one MATAM paired aligned FASTQ under "
-            f"{workdir}; found {matches}. MATAM must use SortMeRNA "
-            "--paired_in with its standard --aligned output prefix.")
-    return matches[0]
+
+def find_filtered_pair(workdir):
+    """Return MATAM's selected (R1, R2) read files from its output directory."""
+    pair = []
+    for name in MATAM_SELECTED_PAIR:
+        candidates = [os.path.join(workdir, name + suffix) for suffix in (".fq.gz", ".fq")]
+        matches = [path for path in candidates if os.path.isfile(path)]
+        if len(matches) != 1:
+            raise RuntimeError(
+                f"Expected exactly one MATAM {name}.fq[.gz] in {workdir}; found "
+                f"{matches}. MATAM must publish its selected paired reads as "
+                "marker_reads_R1/R2.")
+        pair.append(matches[0])
+    return tuple(pair)
 
 
 def open_fastq(path, mode):
@@ -72,20 +65,34 @@ def read_fastq_record(handle, source):
     return record
 
 
-def split_interleaved_fastq(input_path, forward_output, reverse_output):
-    """Split an interleaved, pair-preserving FASTQ into R1 and R2 files."""
+_MATE_SUFFIX = re.compile(r"/[12]$")
+
+
+def pair_id(header_line):
+    """Pair identifier of a FASTQ header: first token without a /1 or /2 suffix."""
+    return _MATE_SUFFIX.sub("", header_line[1:].split()[0])
+
+
+def copy_fastq_pair(forward_input, reverse_input, forward_output, reverse_output):
+    """Copy an R1/R2 FASTQ pair, checking that both files stay in step."""
     pairs = 0
-    with open_fastq(input_path, "rt") as source, \
+    with open_fastq(forward_input, "rt") as forward_source, \
+            open_fastq(reverse_input, "rt") as reverse_source, \
             open_fastq(forward_output, "wt") as forward, \
             open_fastq(reverse_output, "wt") as reverse:
         while True:
-            forward_record = read_fastq_record(source, input_path)
-            if forward_record is None:
+            forward_record = read_fastq_record(forward_source, forward_input)
+            reverse_record = read_fastq_record(reverse_source, reverse_input)
+            if forward_record is None and reverse_record is None:
                 return pairs
-            reverse_record = read_fastq_record(source, input_path)
-            if reverse_record is None:
+            if forward_record is None or reverse_record is None:
                 raise ValueError(
-                    f"Interleaved FASTQ has an unpaired final record: {input_path}")
+                    "Paired FASTQ files have different record counts: "
+                    f"{forward_input}, {reverse_input}")
+            if pair_id(forward_record[0]) != pair_id(reverse_record[0]):
+                raise ValueError(
+                    "Paired FASTQ records are out of step: "
+                    f"{forward_record[0].strip()} vs {reverse_record[0].strip()}")
             forward.writelines(forward_record)
             reverse.writelines(reverse_record)
             pairs += 1
@@ -107,12 +114,12 @@ def run_filter(args):
     ]
     subprocess.run(command, check=True)
 
-    filtered_interleaved = find_filtered_interleaved(wd)
-    suffix = sequence_suffix(filtered_interleaved)
+    filtered_forward, filtered_reverse = find_filtered_pair(wd)
+    suffix = sequence_suffix(filtered_forward)
     forward_output = f"{args.prefix}_16S_R1{suffix}"
     reverse_output = f"{args.prefix}_16S_R2{suffix}"
-    split_interleaved_fastq(
-        filtered_interleaved, forward_output, reverse_output)
+    copy_fastq_pair(
+        filtered_forward, filtered_reverse, forward_output, reverse_output)
     return forward_output, reverse_output
 
 

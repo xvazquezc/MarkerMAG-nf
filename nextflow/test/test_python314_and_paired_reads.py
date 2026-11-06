@@ -26,7 +26,9 @@ def load_script(name):
 
 ASSEMBLE = load_script("markermag_matam_assemble_pct")
 FILTER = load_script("markermag_matam_filter")
+sys.path.insert(0, str(REPOSITORY))
 PAIRING = importlib.import_module("MarkerMAG.read_pairing")
+MATAM_16S = importlib.import_module("MarkerMAG.matam_16s")
 
 
 @contextmanager
@@ -49,21 +51,6 @@ def write_fastq(path, ids):
                 "+\n"
                 "IIIIIIII\n"
             )
-
-
-def write_interleaved_fastq(path, forward_ids, reverse_ids):
-    if len(forward_ids) != len(reverse_ids):
-        raise ValueError("interleaved test input requires complete pairs")
-    opener = gzip.open if str(path).endswith(".gz") else open
-    with opener(path, "wt") as handle:
-        for forward_id, reverse_id in zip(forward_ids, reverse_ids):
-            for record_id in (forward_id, reverse_id):
-                handle.write(
-                    f"@{record_id}\n"
-                    "ACGTACGT\n"
-                    "+\n"
-                    "IIIIIIII\n"
-                )
 
 
 def read_ids(path):
@@ -136,58 +123,89 @@ class PairedSubsamplingTests(unittest.TestCase):
                     str(directory / "out_R1.fastq"),
                     str(directory / "out_R2.fastq"), 100)
 
+def write_matam_selected_pair(directory, forward_ids, reverse_ids, suffix=".fq.gz"):
+    """Write the selected read pair as matam_assembly.py publishes it."""
+    directory = Path(directory)
+    directory.mkdir(parents=True, exist_ok=True)
+    forward = directory / f"marker_reads_R1{suffix}"
+    reverse = directory / f"marker_reads_R2{suffix}"
+    write_fastq(forward, forward_ids)
+    write_fastq(reverse, reverse_ids)
+    return forward, reverse
+
+
+CASAVA_IDS = ["A00123:8:FC:1:1101:1000:1", "A00123:8:FC:1:1101:1000:2"]
+CASAVA_R1 = [f"{read_id} 1:N:0:ACGT" for read_id in CASAVA_IDS]
+CASAVA_R2 = [f"{read_id} 2:N:0:ACGT" for read_id in CASAVA_IDS]
+
+
 class FilterOutputTests(unittest.TestCase):
-    def test_finds_matam_interleaved_sortmerna_output(self):
-        with tempfile.TemporaryDirectory() as directory:
-            output = Path(directory) / "workdir"
-            output.mkdir(parents=True)
-            aligned = output / "raw_R1.sortmerna_vs_SILVA_b10_m10.fastq"
-            write_interleaved_fastq(aligned, ["f1"], ["r1"])
+    def test_finds_matam_selected_read_pair(self):
+        for find in (FILTER.find_filtered_pair, MATAM_16S.find_filtered_pair):
+            with self.subTest(find=find.__module__), \
+                    tempfile.TemporaryDirectory() as directory:
+                forward, reverse = write_matam_selected_pair(directory, ["f1"], ["f1"])
 
-            result = FILTER.find_filtered_interleaved(directory)
+                self.assertEqual(find(directory), (str(forward), str(reverse)))
 
-            self.assertEqual(result, str(aligned))
+    def test_rejects_missing_selected_read_pair(self):
+        for find in (FILTER.find_filtered_pair, MATAM_16S.find_filtered_pair):
+            with self.subTest(find=find.__module__), \
+                    tempfile.TemporaryDirectory() as directory:
+                # An interleaved file is not a valid MATAM output any more.
+                legacy = Path(directory) / "workdir" / "raw_R1.sortmerna_vs_SILVA_b10_m10.fq.gz"
+                legacy.parent.mkdir()
+                write_fastq(legacy, ["f1", "f1"])
 
-    def test_rejects_missing_matam_aligned_output(self):
-        with tempfile.TemporaryDirectory() as directory:
-            unrelated = Path(directory) / "raw_R1.interleaved.fastq"
-            write_fastq(unrelated, ["f1", "r1"])
+                with self.assertRaisesRegex(RuntimeError, "marker_reads_R1"):
+                    find(directory)
 
-            with self.assertRaisesRegex(RuntimeError, "paired aligned FASTQ"):
-                FILTER.find_filtered_interleaved(directory)
+    def test_copies_casava_named_pair_in_step(self):
+        for copy in (FILTER.copy_fastq_pair, PAIRING.copy_fastq_pair):
+            with self.subTest(copy=copy.__module__), \
+                    tempfile.TemporaryDirectory() as directory:
+                forward, reverse = write_matam_selected_pair(directory, CASAVA_R1, CASAVA_R2)
+                out_forward = Path(directory) / "sample_16S_R1.fq.gz"
+                out_reverse = Path(directory) / "sample_16S_R2.fq.gz"
 
-    def test_splits_interleaved_output_into_positionally_paired_files(self):
-        with tempfile.TemporaryDirectory() as directory:
-            directory = Path(directory)
-            aligned = directory / "aligned.fastq.gz"
-            forward = directory / "filtered_R1.fastq.gz"
-            reverse = directory / "filtered_R2.fastq.gz"
-            write_interleaved_fastq(aligned, ["f1", "f2"], ["r1", "r2"])
+                pairs = copy(forward, reverse, out_forward, out_reverse)
 
-            pairs = FILTER.split_interleaved_fastq(aligned, forward, reverse)
+                self.assertEqual(pairs, 2)
+                self.assertEqual(read_ids(out_forward), CASAVA_IDS)
+                self.assertEqual(read_ids(out_reverse), CASAVA_IDS)
 
-            self.assertEqual(pairs, 2)
-            self.assertEqual(read_ids(forward), ["f1", "f2"])
-            self.assertEqual(read_ids(reverse), ["r1", "r2"])
+    def test_accepts_legacy_mate_suffixes(self):
+        for copy in (FILTER.copy_fastq_pair, PAIRING.copy_fastq_pair):
+            with self.subTest(copy=copy.__module__), \
+                    tempfile.TemporaryDirectory() as directory:
+                forward, reverse = write_matam_selected_pair(directory, ["p1/1"], ["p1/2"])
+                directory = Path(directory)
 
-    def test_rejects_unpaired_interleaved_output(self):
-        with tempfile.TemporaryDirectory() as directory:
-            directory = Path(directory)
-            aligned = directory / "aligned.fastq"
-            write_fastq(aligned, ["f1"])
+                self.assertEqual(copy(forward, reverse, directory / "o1.fq", directory / "o2.fq"), 1)
 
-            with self.assertRaisesRegex(ValueError, "unpaired final record"):
-                FILTER.split_interleaved_fastq(
-                    aligned, directory / "filtered_R1.fastq",
-                    directory / "filtered_R2.fastq")
+    def test_rejects_pairs_out_of_step_or_with_different_counts(self):
+        cases = (
+            (["p1", "p2"], ["p1", "p3"], "out of step"),
+            (["p1", "p2"], ["p1"], "different record counts"),
+        )
+        for copy in (FILTER.copy_fastq_pair, PAIRING.copy_fastq_pair):
+            for forward_ids, reverse_ids, message in cases:
+                with self.subTest(copy=copy.__module__, message=message), \
+                        tempfile.TemporaryDirectory() as directory:
+                    forward, reverse = write_matam_selected_pair(
+                        directory, forward_ids, reverse_ids)
+                    directory = Path(directory)
+
+                    with self.assertRaisesRegex(ValueError, message):
+                        copy(forward, reverse, directory / "o1.fq", directory / "o2.fq")
 
     def test_filter_invokes_matam_with_two_input_files(self):
         with tempfile.TemporaryDirectory() as directory:
             directory = Path(directory)
             forward = directory / "raw_R1.fastq.gz"
             reverse = directory / "raw_R2.fastq.gz"
-            write_fastq(forward, ["f1"])
-            write_fastq(reverse, ["r1"])
+            write_fastq(forward, CASAVA_R1[:1])
+            write_fastq(reverse, CASAVA_R2[:1])
             args = SimpleNamespace(
                 matam="/opt/matam/matam_assembly.py",
                 r1=str(forward), r2=str(reverse), prefix="sample",
@@ -198,18 +216,17 @@ class FilterOutputTests(unittest.TestCase):
                 self.assertTrue(check)
                 self.assertIn("--forward", command)
                 self.assertIn("--reverse", command)
+                self.assertIn("--filter_only", command)
                 self.assertNotIn("-i", command)
-                output = directory / "sample_filter_wd" / "workdir"
-                output.mkdir(parents=True)
-                write_interleaved_fastq(
-                    output / "raw_R1.sortmerna_vs_SILVA_b10_m10.fastq",
-                    ["f1"], ["r1"])
+                write_matam_selected_pair(
+                    directory / "sample_filter_wd", CASAVA_R1[:1], CASAVA_R2[:1])
 
             with working_directory(directory), mock.patch.object(
                     FILTER.subprocess, "run", side_effect=fake_matam):
                 outputs = FILTER.run_filter(args)
-            self.assertEqual(read_ids(directory / outputs[0]), ["f1"])
-            self.assertEqual(read_ids(directory / outputs[1]), ["r1"])
+            self.assertEqual(outputs, ("sample_16S_R1.fq.gz", "sample_16S_R2.fq.gz"))
+            self.assertEqual(read_ids(directory / outputs[0]), CASAVA_IDS[:1])
+            self.assertEqual(read_ids(directory / outputs[1]), CASAVA_IDS[:1])
 
 
 class PythonCompatibilityTests(unittest.TestCase):

@@ -2,7 +2,6 @@
 
 import argparse
 import gzip
-import glob
 import os
 import random
 import shutil
@@ -12,6 +11,8 @@ from itertools import zip_longest
 from shutil import which
 
 from Bio import SeqIO
+
+from MarkerMAG.read_pairing import copy_fastq_pair
 
 
 matam_16s_usage = """
@@ -96,55 +97,23 @@ def subsample_pair(forward_path, reverse_path, forward_output, reverse_output,
     return total, written
 
 
-def find_filtered_interleaved(workdir):
-    patterns = (
-        "**/*.sortmerna_vs_*.fastq",
-        "**/*.sortmerna_vs_*.fastq.gz",
-        "**/*.sortmerna_vs_*.fq",
-        "**/*.sortmerna_vs_*.fq.gz",
-    )
-    matches = sorted({
-        path
-        for pattern in patterns
-        for path in glob.glob(os.path.join(workdir, pattern), recursive=True)
-        if os.path.isfile(path)
-    })
-    if len(matches) != 1:
-        raise RuntimeError(
-            "MATAM filtering must produce exactly one interleaved paired "
-            f"aligned FASTQ; found {matches}")
-    return matches[0]
+# matam_assembly.py publishes the read pairs selected by its mapping step as
+# <out_dir>/marker_reads_R1.fq[.gz] and <out_dir>/marker_reads_R2.fq[.gz].
+MATAM_SELECTED_PAIR = ("marker_reads_R1", "marker_reads_R2")
 
 
-def read_fastq_record(handle, source):
-    record = [handle.readline() for _ in range(4)]
-    if not record[0]:
-        if any(record[1:]):
-            raise ValueError(f"Truncated FASTQ record in {source}")
-        return None
-    if any(not line for line in record):
-        raise ValueError(f"Truncated FASTQ record in {source}")
-    if not record[0].startswith("@") or not record[2].startswith("+"):
-        raise ValueError(f"Malformed FASTQ record in {source}")
-    return record
-
-
-def split_interleaved_fastq(input_path, forward_output, reverse_output):
-    pairs = 0
-    with open_sequences(input_path) as source, \
-            open_sequences(forward_output, "wt") as forward, \
-            open_sequences(reverse_output, "wt") as reverse:
-        while True:
-            forward_record = read_fastq_record(source, input_path)
-            if forward_record is None:
-                return pairs
-            reverse_record = read_fastq_record(source, input_path)
-            if reverse_record is None:
-                raise ValueError(
-                    f"Interleaved FASTQ has an unpaired final record: {input_path}")
-            forward.writelines(forward_record)
-            reverse.writelines(reverse_record)
-            pairs += 1
+def find_filtered_pair(workdir):
+    """Return MATAM's selected (R1, R2) read files from its output directory."""
+    pair = []
+    for name in MATAM_SELECTED_PAIR:
+        candidates = [os.path.join(workdir, name + suffix) for suffix in (".fq.gz", ".fq")]
+        matches = [path for path in candidates if os.path.isfile(path)]
+        if len(matches) != 1:
+            raise RuntimeError(
+                f"MATAM filtering must publish exactly one {name}.fq[.gz] in "
+                f"{workdir}; found {matches}")
+        pair.append(matches[0])
+    return tuple(pair)
 
 
 def prefix_fasta(input_path, prefix, output_path):
@@ -220,13 +189,13 @@ def matam_16s(args):
         report_and_log("Extracting paired 16S reads with MATAM",
                        log_file, args["quiet"])
         subprocess.run(command, check=True)
-        source_interleaved = find_filtered_interleaved(filter_dir)
+        filtered_forward, filtered_reverse = find_filtered_pair(filter_dir)
         reads_forward = os.path.join(
-            workdir, f"{output_prefix}_16S_R1{sequence_suffix(source_interleaved)}")
+            workdir, f"{output_prefix}_16S_R1{sequence_suffix(filtered_forward)}")
         reads_reverse = os.path.join(
-            workdir, f"{output_prefix}_16S_R2{sequence_suffix(source_interleaved)}")
-        split_interleaved_fastq(
-            source_interleaved, reads_forward, reads_reverse)
+            workdir, f"{output_prefix}_16S_R2{sequence_suffix(filtered_forward)}")
+        copy_fastq_pair(
+            filtered_forward, filtered_reverse, reads_forward, reads_reverse)
     else:
         reads_forward = args["r16s1"]
         reads_reverse = args["r16s2"]
