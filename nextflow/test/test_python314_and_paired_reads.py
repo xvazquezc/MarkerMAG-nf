@@ -223,7 +223,6 @@ class PythonCompatibilityTests(unittest.TestCase):
                     "MarkerMAG.link_16s",
                     "MarkerMAG.matam_16s",
                     "MarkerMAG.polish_16s",
-                    "MarkerMAG.subsample_reads",
                     "MarkerMAG.uclust_16s"):
                 with self.subTest(module=module_name):
                     importlib.import_module(module_name)

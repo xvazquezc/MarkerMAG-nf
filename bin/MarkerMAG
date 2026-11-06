@@ -39,8 +39,6 @@ def print_main_help():
     uclust_16s       ->  cluster 16S rRNA genes with Usearch
     polish_16s       ->  trim non-16S ends from sequences using Barrnap
     barrnap_16s      ->  identify 16S rRNA genes in MAGs with Barrnap
-    subsample_reads  ->  subsample reads with Usearch
-
     ''' % version(config_dict)
     print(help_message)
 
@@ -191,16 +189,6 @@ if __name__ == '__main__':
         uclust_16S_parser.add_argument('-out',          required=True,                          help='file out')
         args = vars(parser.parse_args())
         uclust_16s.uclust_16S(args)
-
-    elif sys.argv[1] == 'subsample_reads':
-        from MarkerMAG import subsample_reads
-        subsample_reads_parser = subparsers.add_parser('subsample_reads', description='subsample paired reads', usage=subsample_reads.subsample_reads_usage)
-        subsample_reads_parser.add_argument('-r1',      required=True, type=str,            help='forward reads')
-        subsample_reads_parser.add_argument('-r2',      required=True, type=str,            help='reverse reads')
-        subsample_reads_parser.add_argument('-ratio',   required=True, type=str,            help='subsample ratio, 0-1')
-        subsample_reads_parser.add_argument('-usearch', required=False, default='usearch',  help='path to usearch executable file, default: usearch')
-        args = vars(parser.parse_args())
-        subsample_reads.subsample_reads(args)
 
     elif sys.argv[1] == 'polish_16s':
         from MarkerMAG import polish_16s
