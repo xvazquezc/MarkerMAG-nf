@@ -169,7 +169,6 @@ if __name__ == '__main__':
         matam_16s_parser.add_argument('-p',              required=True,  metavar='',                                            help='output prefix')
         matam_16s_parser.add_argument('-r1',             required=False, metavar='', default=None,                              help='forward reads')
         matam_16s_parser.add_argument('-r2',             required=False, metavar='', default=None,                              help='reverse reads')
-        matam_16s_parser.add_argument('-r16s',           required=False, metavar='', default=None,                              help='single-end extracted 16S reads')
         matam_16s_parser.add_argument('-r16s1',          required=False, metavar='', default=None,                              help='forward extracted 16S reads')
         matam_16s_parser.add_argument('-r16s2',          required=False, metavar='', default=None,                              help='reverse extracted 16S reads')
         matam_16s_parser.add_argument('-pct',            required=True,  metavar='', type=str, default='1,5,10,25,50,75,100',   help='subsample percentage, must be integer, between 1-100, deafault: 1,5,10,25,50,75,100')

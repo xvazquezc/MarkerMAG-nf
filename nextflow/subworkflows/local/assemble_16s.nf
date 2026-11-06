@@ -1,13 +1,12 @@
 // ASSEMBLE_16S subworkflow
 //
-// Accepts either raw paired reads or already extracted 16S reads. Raw reads
-// first pass through MATAM --filter_only. Both routes then scatter over all
+// Accepts either raw paired reads or already extracted paired 16S reads. Raw
+// reads first pass through MATAM --filter_only. Both routes then scatter over all
 // configured subsample percentages — each pct runs as an independent HPC job
 // via MATAM_ASSEMBLE — before collecting, combining, clustering, and polishing.
 //
 // Inputs:
 //   ch_reads            : [meta, r1, r2] for MATAM extraction
-//   ch_extracted_single : [meta, reads_16s] for genuinely single-end reads
 //   ch_extracted_pairs  : [meta, reads_16s_r1, reads_16s_r2]
 //   ch_matam_db         : value channel — absolute MATAM DB prefix
 //
@@ -24,7 +23,6 @@ workflow ASSEMBLE_16S {
 
     take:
     ch_reads            // [meta, r1, r2]
-    ch_extracted_single // [meta, reads_16s]
     ch_extracted_pairs  // [meta, reads_16s_r1, reads_16s_r2]
     ch_matam_db         // value: absolute MATAM DB prefix
 
@@ -39,15 +37,10 @@ workflow ASSEMBLE_16S {
     // samples that entered at the extracted-reads checkpoint.
     //
     MATAM_FILTER ( ch_reads, ch_matam_db )
-    ch_filtered_pairs = MATAM_FILTER.out.reads_16s.map {
-        meta, forward, reverse -> tuple(meta, [forward, reverse])
-    }
-    ch_checkpoint_pairs = ch_extracted_pairs.map {
-        meta, forward, reverse -> tuple(meta, [forward, reverse])
-    }
+    ch_filtered_pairs = MATAM_FILTER.out.reads_16s
+    ch_checkpoint_pairs = ch_extracted_pairs
     ch_reads_16s = ch_filtered_pairs
         .mix(ch_checkpoint_pairs)
-        .mix(ch_extracted_single)
 
     //
     // Scatter: one MATAM_ASSEMBLE job per (sample × pct) combination.
@@ -55,8 +48,8 @@ workflow ASSEMBLE_16S {
     // running as an independent HPC submission.
     //
     ch_pct_inputs = ch_reads_16s
-        .flatMap { meta, reads ->
-            pct_list.collect { pct -> tuple(meta, pct, reads) }
+        .flatMap { meta, forward, reverse ->
+            pct_list.collect { pct -> tuple(meta, pct, forward, reverse) }
         }
 
     MATAM_ASSEMBLE ( ch_pct_inputs, ch_matam_db )

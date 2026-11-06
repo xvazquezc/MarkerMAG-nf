@@ -51,6 +51,21 @@ def write_fastq(path, ids):
             )
 
 
+def write_interleaved_fastq(path, forward_ids, reverse_ids):
+    if len(forward_ids) != len(reverse_ids):
+        raise ValueError("interleaved test input requires complete pairs")
+    opener = gzip.open if str(path).endswith(".gz") else open
+    with opener(path, "wt") as handle:
+        for forward_id, reverse_id in zip(forward_ids, reverse_ids):
+            for record_id in (forward_id, reverse_id):
+                handle.write(
+                    f"@{record_id}\n"
+                    "ACGTACGT\n"
+                    "+\n"
+                    "IIIIIIII\n"
+                )
+
+
 def read_ids(path):
     opener = gzip.open if str(path).endswith(".gz") else open
     with opener(path, "rt") as handle:
@@ -78,6 +93,34 @@ class PairedSubsamplingTests(unittest.TestCase):
             self.assertEqual(read_ids(forward_output), forward_ids)
             self.assertEqual(read_ids(reverse_output), reverse_ids)
 
+    def test_seed_reproduces_a_subsample_and_can_select_a_different_one(self):
+        with tempfile.TemporaryDirectory() as directory:
+            directory = Path(directory)
+            forward = directory / "reads_R1.fastq"
+            reverse = directory / "reads_R2.fastq"
+            forward_ids = [f"f{index}" for index in range(20)]
+            reverse_ids = [f"r{index}" for index in range(20)]
+            write_fastq(forward, forward_ids)
+            write_fastq(reverse, reverse_ids)
+
+            def subsample(seed, tag):
+                forward_output = directory / f"{tag}_R1.fastq"
+                reverse_output = directory / f"{tag}_R2.fastq"
+                ASSEMBLE.subsample_paired_reads(
+                    str(forward), str(reverse), str(forward_output),
+                    str(reverse_output), 50, seed=seed)
+                return read_ids(forward_output), read_ids(reverse_output)
+
+            first = subsample(17, "first")
+            repeated = subsample(17, "repeated")
+            different = subsample(18, "different")
+
+            self.assertEqual(first, repeated)
+            self.assertNotEqual(first, different)
+            self.assertEqual(
+                [identifier.replace("f", "r", 1) for identifier in first[0]],
+                first[1])
+
     def test_pair_with_different_record_counts_is_rejected(self):
         with tempfile.TemporaryDirectory() as directory:
             directory = Path(directory)
@@ -93,42 +136,50 @@ class PairedSubsamplingTests(unittest.TestCase):
                     str(directory / "out_R1.fastq"),
                     str(directory / "out_R2.fastq"), 100)
 
-    def test_single_end_input_is_not_treated_as_interleaved(self):
+class FilterOutputTests(unittest.TestCase):
+    def test_finds_matam_interleaved_sortmerna_output(self):
+        with tempfile.TemporaryDirectory() as directory:
+            output = Path(directory) / "workdir"
+            output.mkdir(parents=True)
+            aligned = output / "raw_R1.sortmerna_vs_SILVA_b10_m10.fastq"
+            write_interleaved_fastq(aligned, ["f1"], ["r1"])
+
+            result = FILTER.find_filtered_interleaved(directory)
+
+            self.assertEqual(result, str(aligned))
+
+    def test_rejects_missing_matam_aligned_output(self):
+        with tempfile.TemporaryDirectory() as directory:
+            unrelated = Path(directory) / "raw_R1.interleaved.fastq"
+            write_fastq(unrelated, ["f1", "r1"])
+
+            with self.assertRaisesRegex(RuntimeError, "paired aligned FASTQ"):
+                FILTER.find_filtered_interleaved(directory)
+
+    def test_splits_interleaved_output_into_positionally_paired_files(self):
         with tempfile.TemporaryDirectory() as directory:
             directory = Path(directory)
-            reads = directory / "single.fastq.gz"
-            output = directory / "subset.fastq.gz"
-            write_fastq(reads, ["read.1", "read.2", "unpaired"])
+            aligned = directory / "aligned.fastq.gz"
+            forward = directory / "filtered_R1.fastq.gz"
+            reverse = directory / "filtered_R2.fastq.gz"
+            write_interleaved_fastq(aligned, ["f1", "f2"], ["r1", "r2"])
 
-            total, written = ASSEMBLE.subsample_single_reads(
-                str(reads), str(output), 100)
+            pairs = FILTER.split_interleaved_fastq(aligned, forward, reverse)
 
-            self.assertEqual((total, written), (3, 3))
-            self.assertEqual(
-                read_ids(output), ["read.1", "read.2", "unpaired"])
+            self.assertEqual(pairs, 2)
+            self.assertEqual(read_ids(forward), ["f1", "f2"])
+            self.assertEqual(read_ids(reverse), ["r1", "r2"])
 
-
-class FilterOutputTests(unittest.TestCase):
-    def test_finds_sortmerna_out2_pair(self):
+    def test_rejects_unpaired_interleaved_output(self):
         with tempfile.TemporaryDirectory() as directory:
-            output = Path(directory) / "workdir" / "sortmerna" / "out"
-            output.mkdir(parents=True)
-            forward = output / "aligned_fwd.fastq.gz"
-            reverse = output / "aligned_rev.fastq.gz"
-            write_fastq(forward, ["f1"])
-            write_fastq(reverse, ["r1"])
+            directory = Path(directory)
+            aligned = directory / "aligned.fastq"
+            write_fastq(aligned, ["f1"])
 
-            result = FILTER.find_filtered_pair(directory)
-
-            self.assertEqual(result, (str(forward), str(reverse)))
-
-    def test_rejects_single_combined_filter_output(self):
-        with tempfile.TemporaryDirectory() as directory:
-            combined = Path(directory) / "aligned.fastq"
-            write_fastq(combined, ["f1", "r1"])
-
-            with self.assertRaisesRegex(RuntimeError, "--out2 --paired_in"):
-                FILTER.find_filtered_pair(directory)
+            with self.assertRaisesRegex(ValueError, "unpaired final record"):
+                FILTER.split_interleaved_fastq(
+                    aligned, directory / "filtered_R1.fastq",
+                    directory / "filtered_R2.fastq")
 
     def test_filter_invokes_matam_with_two_input_files(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -148,14 +199,11 @@ class FilterOutputTests(unittest.TestCase):
                 self.assertIn("--forward", command)
                 self.assertIn("--reverse", command)
                 self.assertNotIn("-i", command)
-                output = (
-                    directory / "sample_filter_wd" / "workdir" /
-                    "sortmerna_reads_mapping" / "out")
+                output = directory / "sample_filter_wd" / "workdir"
                 output.mkdir(parents=True)
-                write_fastq(
-                    output / "aligned_paired_fwd.fastq.gz", ["f1"])
-                write_fastq(
-                    output / "aligned_paired_rev.fastq.gz", ["r1"])
+                write_interleaved_fastq(
+                    output / "raw_R1.sortmerna_vs_SILVA_b10_m10.fastq",
+                    ["f1"], ["r1"])
 
             with working_directory(directory), mock.patch.object(
                     FILTER.subprocess, "run", side_effect=fake_matam):

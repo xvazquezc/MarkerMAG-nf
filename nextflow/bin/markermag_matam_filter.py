@@ -3,8 +3,8 @@
 Wrapper for the MATAM --filter_only step (16S read extraction).
 
 Passes forward and reverse reads to MATAM as separate files, runs
-matam_assembly.py --filter_only, then exposes SortMeRNA's separate aligned
-paired outputs under predictable names.
+matam_assembly.py --filter_only, then splits MATAM's interleaved aligned
+paired FASTQ into predictable R1/R2 outputs.
 
 Called by the MATAM_FILTER Nextflow process.
 """
@@ -12,52 +12,88 @@ Called by the MATAM_FILTER Nextflow process.
 import os
 import sys
 import glob
-import shutil
+import gzip
 import argparse
 import subprocess
 
 
 def sequence_suffix(path):
-    name = path.lower()
+    name = os.fspath(path).lower()
     for suffix in (".fastq.gz", ".fq.gz", ".fastq", ".fq"):
         if name.endswith(suffix):
             return suffix
     raise ValueError(f"MATAM paired reads must be FASTQ: {path}")
 
 
-def find_filtered_pair(workdir):
-    forward_patterns = (
-        "**/*aligned*fwd*.fastq",
-        "**/*aligned*fwd*.fastq.gz",
-        "**/*aligned*fwd*.fq",
-        "**/*aligned*fwd*.fq.gz",
-    )
-    reverse_patterns = tuple(
-        pattern.replace("fwd", "rev")
-        for pattern in forward_patterns
-    )
+def find_filtered_interleaved(workdir):
+    """Find MATAM's paired SortMeRNA FASTX output.
 
-    def matches(patterns):
-        found = {
-            path
-            for pattern in patterns
-            for path in glob.glob(os.path.join(workdir, pattern), recursive=True)
-            if os.path.isfile(path)
-        }
-        return sorted(found)
-
-    forward_matches = matches(forward_patterns)
-    reverse_matches = matches(reverse_patterns)
-    if len(forward_matches) != 1 or len(reverse_matches) != 1:
+    MATAM passes an explicit ``--aligned`` prefix to SortMeRNA.  With
+    ``--paired_in`` and no ``--out2``, SortMeRNA v7 writes one interleaved
+    FASTQ at that prefix.  The ``.sortmerna_vs_`` segment is part of MATAM's
+    own output naming scheme.
+    """
+    patterns = (
+        "**/*.sortmerna_vs_*.fastq",
+        "**/*.sortmerna_vs_*.fastq.gz",
+        "**/*.sortmerna_vs_*.fq",
+        "**/*.sortmerna_vs_*.fq.gz",
+    )
+    matches = sorted({
+        path
+        for pattern in patterns
+        for path in glob.glob(os.path.join(workdir, pattern), recursive=True)
+        if os.path.isfile(path)
+    })
+    if len(matches) != 1:
         raise RuntimeError(
-            "Expected exactly one separate aligned forward/reverse FASTQ pair "
-            f"under {workdir}; found forward={forward_matches}, "
-            f"reverse={reverse_matches}. The MATAM SortMeRNA call must use "
-            "--out2 --paired_in.")
-    return forward_matches[0], reverse_matches[0]
+            "Expected exactly one MATAM paired aligned FASTQ under "
+            f"{workdir}; found {matches}. MATAM must use SortMeRNA "
+            "--paired_in with its standard --aligned output prefix.")
+    return matches[0]
+
+
+def open_fastq(path, mode):
+    path = os.fspath(path)
+    return gzip.open(path, mode) if path.lower().endswith(".gz") else open(path, mode)
+
+
+def read_fastq_record(handle, source):
+    """Read one FASTQ record, rejecting truncated or malformed input."""
+    record = [handle.readline() for _ in range(4)]
+    if not record[0]:
+        if any(record[1:]):
+            raise ValueError(f"Truncated FASTQ record in {source}")
+        return None
+    if any(not line for line in record):
+        raise ValueError(f"Truncated FASTQ record in {source}")
+    if not record[0].startswith("@") or not record[2].startswith("+"):
+        raise ValueError(f"Malformed FASTQ record in {source}")
+    return record
+
+
+def split_interleaved_fastq(input_path, forward_output, reverse_output):
+    """Split an interleaved, pair-preserving FASTQ into R1 and R2 files."""
+    pairs = 0
+    with open_fastq(input_path, "rt") as source, \
+            open_fastq(forward_output, "wt") as forward, \
+            open_fastq(reverse_output, "wt") as reverse:
+        while True:
+            forward_record = read_fastq_record(source, input_path)
+            if forward_record is None:
+                return pairs
+            reverse_record = read_fastq_record(source, input_path)
+            if reverse_record is None:
+                raise ValueError(
+                    f"Interleaved FASTQ has an unpaired final record: {input_path}")
+            forward.writelines(forward_record)
+            reverse.writelines(reverse_record)
+            pairs += 1
 
 
 def run_filter(args):
+    sequence_suffix(args.r1)
+    sequence_suffix(args.r2)
     wd = f"{args.prefix}_filter_wd"
     command = [
         args.matam,
@@ -71,11 +107,12 @@ def run_filter(args):
     ]
     subprocess.run(command, check=True)
 
-    filtered_forward, filtered_reverse = find_filtered_pair(wd)
-    forward_output = f"{args.prefix}_16S_R1{sequence_suffix(filtered_forward)}"
-    reverse_output = f"{args.prefix}_16S_R2{sequence_suffix(filtered_reverse)}"
-    shutil.copy2(filtered_forward, forward_output)
-    shutil.copy2(filtered_reverse, reverse_output)
+    filtered_interleaved = find_filtered_interleaved(wd)
+    suffix = sequence_suffix(filtered_interleaved)
+    forward_output = f"{args.prefix}_16S_R1{suffix}"
+    reverse_output = f"{args.prefix}_16S_R2{suffix}"
+    split_interleaved_fastq(
+        filtered_interleaved, forward_output, reverse_output)
     return forward_output, reverse_output
 
 

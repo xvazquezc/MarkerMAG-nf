@@ -43,7 +43,8 @@ dependencies:
   - automake
   - gxx_linux-64
   - sga
-  - sortmerna>=5
+  # Keep this in lockstep with MATAM's tested SortMeRNA ABI and index format.
+  - sortmerna>=7,<8
   - seqkit
   - cd-hit
   - rdptools

@@ -54,8 +54,8 @@ seqtk sample -s 42 "${DEMO_DIR}/demo_R2.fasta" "${N_READS}" > "${DATA_DIR}/test_
 
 # ── Write samplesheet ──────────────────────────────────────────────────────────
 cat > "${SCRIPT_DIR}/samplesheet.csv" << EOF
-sample,r1,r2,mag_dir,mag_ext,16s_reads,16s_reads_r1,16s_reads_r2,16s_fasta
-demo,${DATA_DIR}/test_R1.fasta,${DATA_DIR}/test_R2.fasta,${DATA_DIR}/mags,fa,,,,${DATA_DIR}/16s/demo_16S.fasta
+sample,r1,r2,mag_dir,mag_ext,16s_reads_r1,16s_reads_r2,16s_fasta
+demo,${DATA_DIR}/test_R1.fasta,${DATA_DIR}/test_R2.fasta,${DATA_DIR}/mags,fa,,,${DATA_DIR}/16s/demo_16S.fasta
 EOF
 
 echo ""

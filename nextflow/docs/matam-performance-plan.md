@@ -321,7 +321,7 @@ MATAM_MAP_FULL
 
 For raw-read samples, the aligned FASTQ and SAM already created by
 `MATAM_FILTER` should be retained and reused. For samples entering through the
-`16s_reads` checkpoint, one full mapping should be introduced.
+`16s_reads_r1`/`16s_reads_r2` checkpoint, one full mapping should be introduced.
 
 Percentage selection must keep mates together and retain all SAM alignments for
 every selected read. The percentage-specific SAM must then be canonically

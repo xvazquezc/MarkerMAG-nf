@@ -12,7 +12,7 @@ process MATAM_ASSEMBLE {
     label 'process_matam'
 
     input:
-    tuple val(meta), val(pct), path(reads_16s)
+    tuple val(meta), val(pct), path(forward), path(reverse)
     val   matam_db              // absolute MATAM DB prefix on shared storage
 
     output:
@@ -20,13 +20,12 @@ process MATAM_ASSEMBLE {
           emit: assembly
 
     script:
-    def reads_args = reads_16s instanceof List
-        ? "--forward ${reads_16s[0]} --reverse ${reads_16s[1]}"
-        : "--reads_16s ${reads_16s}"
     """
     markermag_matam_assemble_pct.py \\
-        ${reads_args}                               \\
+        --forward   ${forward}                       \\
+        --reverse   ${reverse}                       \\
         --pct       ${pct}                           \\
+        --seed      ${params.matam_subsample_seed}   \\
         --prefix    ${meta.id}                       \\
         --matam_db  '${matam_db}'                      \\
         --cpu       ${task.cpus}                     \\

@@ -115,8 +115,8 @@ The workflow has three per-sample entry points:
 
 1. If `16s_fasta` is supplied, the sequences are clustered with `uclust_16s`,
    polished with Barrnap, and passed to `MarkerMAG link`.
-2. If `16s_reads` or the `16s_reads_r1`/`16s_reads_r2` pair is
-   supplied, MATAM extraction is skipped and those reads enter assembly.
+2. If the `16s_reads_r1`/`16s_reads_r2` pair is supplied, MATAM extraction is
+   skipped and those reads enter assembly.
 3. If all optional 16S fields are empty, MATAM extracts candidate reads from
    `r1` and `r2`.
 
@@ -124,6 +124,10 @@ For the two assembly routes, each value in `--matam_pcts` is assembled as an
 independent Nextflow task, making the expensive assemblies suitable for
 parallel HPC submission. The assemblies are then combined, clustered,
 polished, and linked.
+
+MATAM paired-read subsampling is deterministic. Use
+`--matam_subsample_seed` to choose the random seed (default: `42`); use the
+same seed to reproduce a previous set of subsamples.
 
 ### Requirements
 
@@ -149,7 +153,6 @@ where Nextflow is launched.
 | `r2` | Reverse reads; required under the same conditions as `r1` |
 | `mag_dir` | Directory containing the sample's MAG files; optional in `--reconstruct_only` mode |
 | `mag_ext` | MAG filename extension without the leading dot, such as `fa` |
-| `16s_reads` | Optional genuinely single-end candidate 16S reads; never an interleaved pair |
 | `16s_reads_r1` | Optional forward candidate 16S reads; requires `16s_reads_r2` |
 | `16s_reads_r2` | Optional reverse candidate 16S reads; requires `16s_reads_r1` |
 | `16s_fasta` | Optional prepared 16S FASTA; leave empty to run MATAM |
@@ -183,7 +186,7 @@ without running MAG–16S linking or copy-number estimation:
 Input requirements depend on the selected checkpoint:
 
 + With `16s_fasta`, `r1`, `r2`, and `mag_dir` may all be empty.
-+ With `16s_reads` or `16s_reads_r1`/`16s_reads_r2`, `r1`, `r2`,
++ With `16s_reads_r1`/`16s_reads_r2`, `r1`, `r2`,
   and `mag_dir` may all be empty, but `--matam_db` remains required.
 + With no optional 16S input, `r1` and `r2` are required for MATAM extraction;
   `mag_dir` remains optional.
@@ -193,10 +196,9 @@ The final sequences are written to
 
 ### Resume from extracted 16S reads
 
-Put paired candidate reads in `16s_reads_r1` and `16s_reads_r2`, or
-put genuinely single-end candidate reads in `16s_reads`. Interleaved
-reads are not supported. Leave `16s_fasta` empty. The original `r1` and `r2`
-files are still required for the later MarkerMAG linking stage.
+Put paired candidate reads in `16s_reads_r1` and `16s_reads_r2`. Interleaved
+and single-end reads are not supported. Leave `16s_fasta` empty. The original
+`r1` and `r2` files are still required for the later MarkerMAG linking stage.
 
     cd nextflow
     nextflow run main.nf \

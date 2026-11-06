@@ -25,10 +25,9 @@ def help_message() {
     ── Input / output ────────────────────────────────────────────────────────────
       --input          CSV samplesheet  [required]
                        Columns: sample, r1, r2, mag_dir, mag_ext,
-                                16s_reads, 16s_reads_r1, 16s_reads_r2,
+                                16s_reads_r1, 16s_reads_r2,
                                 16s_fasta
                        16s_fasta: use completed 16S sequences.
-                       16s_reads:  single-end extracted candidate reads.
                        16s_reads_r1/r2: paired extracted candidate reads.
                        Leave all extracted-read fields empty to run extraction.
       --outdir         Output directory  [default: ${params.outdir}]
@@ -43,6 +42,8 @@ def help_message() {
                        Build: index_default_ssu_rrna_db.py -d \$DBDIR
       --matam_pcts     Subsample percentages, comma-separated           [default: ${params.matam_pcts}]
                        Each value spawns an independent HPC job.
+      --matam_subsample_seed
+                       Random seed for deterministic paired subsampling  [default: ${params.matam_subsample_seed}]
       --matam_threads  CPUs per MATAM assembly job                      [default: ${params.matam_threads}]
                        (tool default: 1; MATAM scales well to ~8–16)
       --matam_mem_mb   Memory per MATAM assembly job (MB)               [default: ${params.matam_mem_mb}]
@@ -146,9 +147,6 @@ def parse_samplesheet_row(row) {
     def r2        = row.r2      ? file(row.r2,      checkIfExists: true) : []
     def mag_dir   = row.mag_dir ? file(row.mag_dir, checkIfExists: true) : []
     def mag_ext   = row.mag_ext ?: 'fa'
-    def reads_16s_single = row['16s_reads']
-        ? file(row['16s_reads'], checkIfExists: true)
-        : []
     def reads_16s_r1 = row['16s_reads_r1']
         ? file(row['16s_reads_r1'], checkIfExists: true)
         : []
@@ -158,12 +156,7 @@ def parse_samplesheet_row(row) {
     if ( (reads_16s_r1 == []) != (reads_16s_r2 == []) ) {
         error "ERROR: Sample '${meta.id}' must provide both 16s_reads_r1 and 16s_reads_r2, or neither."
     }
-    if ( reads_16s_single != [] && reads_16s_r1 != [] ) {
-        error "ERROR: Sample '${meta.id}' cannot combine 16s_reads with 16s_reads_r1/16s_reads_r2."
-    }
-    def reads_16s = reads_16s_single != []
-        ? [reads_16s_single]
-        : (reads_16s_r1 != [] ? [reads_16s_r1, reads_16s_r2] : [])
+    def reads_16s = reads_16s_r1 != [] ? [reads_16s_r1, reads_16s_r2] : []
     def seqs_16s  = row['16s_fasta'] ? file(row['16s_fasta'], checkIfExists: true) : []
 
     if ( (r1 == []) != (r2 == []) ) {
@@ -243,11 +236,6 @@ workflow {
                     meta, r1, r2, mag_dir, mag_ext, reads_16s, s16 ->
                 tuple(meta, r1, r2)
             },
-            ch_branched.has_extracted_reads.map {
-                    meta, r1, r2, mag_dir, mag_ext, reads_16s, s16 ->
-                tuple(meta, reads_16s)
-            }.filter { meta, reads -> reads.size() == 1 }
-             .map { meta, reads -> tuple(meta, reads[0]) },
             ch_branched.has_extracted_reads.map {
                     meta, r1, r2, mag_dir, mag_ext, reads_16s, s16 ->
                 tuple(meta, reads_16s)

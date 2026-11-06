@@ -20,7 +20,6 @@ matam_16s_usage = """
 MarkerMAG matam_16s -p Test -r1 R1.fastq.gz -r2 R2.fastq.gz -t 12 -d DB_PREFIX
 MarkerMAG matam_16s -p Test -r16s1 extracted_R1.fastq.gz \
     -r16s2 extracted_R2.fastq.gz -t 12 -d DB_PREFIX
-MarkerMAG matam_16s -p Test -r16s single_end_16S.fastq.gz -t 12 -d DB_PREFIX
 
 Paired reads remain in separate files throughout; interleaved input is unsupported.
 
@@ -50,15 +49,12 @@ def sequence_format(path):
     name = path.lower()
     if name.endswith((".fastq", ".fq", ".fastq.gz", ".fq.gz")):
         return "fastq"
-    if name.endswith((".fasta", ".fa", ".fasta.gz", ".fa.gz")):
-        return "fasta"
-    raise ValueError(f"Unsupported sequence filename: {path}")
+    raise ValueError(f"Paired MATAM reads must be FASTQ: {path}")
 
 
 def sequence_suffix(path):
     name = path.lower()
-    for suffix in (".fastq.gz", ".fq.gz", ".fasta.gz", ".fa.gz",
-                   ".fastq", ".fq", ".fasta", ".fa"):
+    for suffix in (".fastq.gz", ".fq.gz", ".fastq", ".fq"):
         if name.endswith(suffix):
             return suffix
     raise ValueError(f"Unsupported sequence filename: {path}")
@@ -70,22 +66,6 @@ def open_sequences(path, mode="rt"):
     return open(path, mode, encoding="utf-8")
 
 
-def subsample_single(input_path, output_path, percentage):
-    sequence_type = sequence_format(input_path)
-    output_type = "fastq" if sequence_type == "fastq" else "fasta-2line"
-    rng = random.Random(1)
-    total = 0
-    written = 0
-    with open_sequences(input_path) as input_handle, \
-            open_sequences(output_path, "wt") as output_handle:
-        for record in SeqIO.parse(input_handle, sequence_type):
-            total += 1
-            if percentage == 100 or rng.random() < percentage / 100:
-                SeqIO.write(record, output_handle, output_type)
-                written += 1
-    return total, written
-
-
 def subsample_pair(forward_path, reverse_path, forward_output, reverse_output,
                    percentage):
     forward_type = sequence_format(forward_path)
@@ -93,7 +73,7 @@ def subsample_pair(forward_path, reverse_path, forward_output, reverse_output,
     if forward_type != reverse_type:
         raise ValueError("Forward and reverse reads must use the same format")
 
-    output_type = "fastq" if forward_type == "fastq" else "fasta-2line"
+    output_type = "fastq"
     rng = random.Random(1)
     total = 0
     written = 0
@@ -116,33 +96,55 @@ def subsample_pair(forward_path, reverse_path, forward_output, reverse_output,
     return total, written
 
 
-def find_filtered_pair(workdir):
+def find_filtered_interleaved(workdir):
     patterns = (
-        "**/*aligned*fwd*.fastq",
-        "**/*aligned*fwd*.fastq.gz",
-        "**/*aligned*fwd*.fq",
-        "**/*aligned*fwd*.fq.gz",
+        "**/*.sortmerna_vs_*.fastq",
+        "**/*.sortmerna_vs_*.fastq.gz",
+        "**/*.sortmerna_vs_*.fq",
+        "**/*.sortmerna_vs_*.fq.gz",
     )
-    forward_matches = sorted({
+    matches = sorted({
         path
         for pattern in patterns
         for path in glob.glob(os.path.join(workdir, pattern), recursive=True)
         if os.path.isfile(path)
     })
-    reverse_matches = sorted({
-        path
-        for pattern in patterns
-        for path in glob.glob(
-            os.path.join(workdir, pattern.replace("fwd", "rev")),
-            recursive=True)
-        if os.path.isfile(path)
-    })
-    if len(forward_matches) != 1 or len(reverse_matches) != 1:
+    if len(matches) != 1:
         raise RuntimeError(
-            "MATAM filtering must produce one aligned forward and one aligned "
-            "reverse FASTQ. Ensure its SortMeRNA command uses "
-            "--out2 --paired_in.")
-    return forward_matches[0], reverse_matches[0]
+            "MATAM filtering must produce exactly one interleaved paired "
+            f"aligned FASTQ; found {matches}")
+    return matches[0]
+
+
+def read_fastq_record(handle, source):
+    record = [handle.readline() for _ in range(4)]
+    if not record[0]:
+        if any(record[1:]):
+            raise ValueError(f"Truncated FASTQ record in {source}")
+        return None
+    if any(not line for line in record):
+        raise ValueError(f"Truncated FASTQ record in {source}")
+    if not record[0].startswith("@") or not record[2].startswith("+"):
+        raise ValueError(f"Malformed FASTQ record in {source}")
+    return record
+
+
+def split_interleaved_fastq(input_path, forward_output, reverse_output):
+    pairs = 0
+    with open_sequences(input_path) as source, \
+            open_sequences(forward_output, "wt") as forward, \
+            open_sequences(reverse_output, "wt") as reverse:
+        while True:
+            forward_record = read_fastq_record(source, input_path)
+            if forward_record is None:
+                return pairs
+            reverse_record = read_fastq_record(source, input_path)
+            if reverse_record is None:
+                raise ValueError(
+                    f"Interleaved FASTQ has an unpaired final record: {input_path}")
+            forward.writelines(forward_record)
+            reverse.writelines(reverse_record)
+            pairs += 1
 
 
 def prefix_fasta(input_path, prefix, output_path):
@@ -169,29 +171,30 @@ def parse_uclust_output(uclust_output, cluster_members):
 def check_inputs(args):
     raw_pair = args["r1"] is not None or args["r2"] is not None
     extracted_pair = args["r16s1"] is not None or args["r16s2"] is not None
-    extracted_single = args["r16s"] is not None
 
     if raw_pair and not (args["r1"] and args["r2"]):
         raise ValueError("-r1 and -r2 must be provided together")
     if extracted_pair and not (args["r16s1"] and args["r16s2"]):
         raise ValueError("-r16s1 and -r16s2 must be provided together")
-    if sum((raw_pair, extracted_pair, extracted_single)) != 1:
+    if sum((raw_pair, extracted_pair)) != 1:
         raise ValueError(
-            "Provide exactly one input mode: -r1/-r2, -r16s1/-r16s2, or -r16s")
+            "Provide exactly one paired input mode: -r1/-r2 or -r16s1/-r16s2")
 
     paths = [
         path for path in (
-            args["r1"], args["r2"], args["r16s1"], args["r16s2"], args["r16s"])
+            args["r1"], args["r2"], args["r16s1"], args["r16s2"])
         if path is not None
     ]
     missing = [path for path in paths if not os.path.isfile(path)]
     if missing:
         raise FileNotFoundError(", ".join(missing))
-    return raw_pair, extracted_pair, extracted_single
+    for path in paths:
+        sequence_format(path)
+    return raw_pair, extracted_pair
 
 
 def matam_16s(args):
-    raw_pair, extracted_pair, extracted_single = check_inputs(args)
+    raw_pair, extracted_pair = check_inputs(args)
     for executable in (args["matam"], args["usearch"]):
         if which(executable) is None and not os.path.isfile(executable):
             raise FileNotFoundError(f"Executable not found: {executable}")
@@ -205,8 +208,6 @@ def matam_16s(args):
     os.mkdir(workdir)
 
     log_file = os.path.join(workdir, f"{output_prefix}_matam_16s.log")
-    paired = raw_pair or extracted_pair
-
     if raw_pair:
         filter_dir = os.path.join(workdir, f"{output_prefix}_get_16S_reads_wd")
         command = [
@@ -218,18 +219,16 @@ def matam_16s(args):
         report_and_log("Extracting paired 16S reads with MATAM",
                        log_file, args["quiet"])
         subprocess.run(command, check=True)
-        source_forward, source_reverse = find_filtered_pair(filter_dir)
+        source_interleaved = find_filtered_interleaved(filter_dir)
         reads_forward = os.path.join(
-            workdir, f"{output_prefix}_16S_R1{sequence_suffix(source_forward)}")
+            workdir, f"{output_prefix}_16S_R1{sequence_suffix(source_interleaved)}")
         reads_reverse = os.path.join(
-            workdir, f"{output_prefix}_16S_R2{sequence_suffix(source_reverse)}")
-        shutil.copy2(source_forward, reads_forward)
-        shutil.copy2(source_reverse, reads_reverse)
-    elif extracted_pair:
+            workdir, f"{output_prefix}_16S_R2{sequence_suffix(source_interleaved)}")
+        split_interleaved_fastq(
+            source_interleaved, reads_forward, reads_reverse)
+    else:
         reads_forward = args["r16s1"]
         reads_reverse = args["r16s2"]
-    else:
-        reads_single = args["r16s"]
 
     assemblies = []
     for percentage in str_to_num_list(args["pct"]):
@@ -238,32 +237,23 @@ def matam_16s(args):
         output_dir = os.path.join(
             workdir, f"{output_prefix}_16S_subset_{percentage_tag}_Matam_wd")
 
-        if paired:
-            forward_subset = os.path.join(
-                workdir,
-                f"{output_prefix}_16S_subset_{percentage_tag}_R1"
-                f"{sequence_suffix(reads_forward)}")
-            reverse_subset = os.path.join(
-                workdir,
-                f"{output_prefix}_16S_subset_{percentage_tag}_R2"
-                f"{sequence_suffix(reads_reverse)}")
-            total, written = subsample_pair(
-                reads_forward, reads_reverse, forward_subset, reverse_subset,
-                percentage)
-            input_arguments = [
-                "--forward", forward_subset, "--reverse", reverse_subset]
-        else:
-            single_subset = os.path.join(
-                workdir,
-                f"{output_prefix}_16S_subset_{percentage_tag}"
-                f"{sequence_suffix(reads_single)}")
-            total, written = subsample_single(
-                reads_single, single_subset, percentage)
-            input_arguments = ["-i", single_subset]
+        forward_subset = os.path.join(
+            workdir,
+            f"{output_prefix}_16S_subset_{percentage_tag}_R1"
+            f"{sequence_suffix(reads_forward)}")
+        reverse_subset = os.path.join(
+            workdir,
+            f"{output_prefix}_16S_subset_{percentage_tag}_R2"
+            f"{sequence_suffix(reads_reverse)}")
+        total, written = subsample_pair(
+            reads_forward, reads_reverse, forward_subset, reverse_subset,
+            percentage)
+        input_arguments = [
+            "--forward", forward_subset, "--reverse", reverse_subset]
 
         report_and_log(
             f"Selected {written} of {total} "
-            f"{'pairs' if paired else 'reads'} at {percentage_tag}%",
+            f"pairs at {percentage_tag}%",
             log_file, args["quiet"])
         if written == 0:
             continue
@@ -313,8 +303,6 @@ if __name__ == "__main__":
     parser.add_argument("-p", required=True, help="output prefix")
     parser.add_argument("-r1", default=None, help="forward raw reads")
     parser.add_argument("-r2", default=None, help="reverse raw reads")
-    parser.add_argument("-r16s", default=None,
-                        help="single-end extracted 16S reads")
     parser.add_argument("-r16s1", default=None,
                         help="forward extracted 16S reads")
     parser.add_argument("-r16s2", default=None,
