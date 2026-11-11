@@ -37,7 +37,8 @@ dependencies:
   - bzip2
   - zlib
   - make
-  - cmake
+  # Same pin as MATAM's environment.yml (CMake 4 can't configure ovgraphbuild).
+  - cmake=3.31.8
   - autoconf
   - automake
   - gxx_linux-64
