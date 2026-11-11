@@ -89,6 +89,9 @@ def main():
     parser.add_argument('--seed',      default=42, type=int,
                         help='Deterministic random seed for paired subsampling '
                              '(default: %(default)s)')
+    parser.add_argument('--matam_seed', default=42, type=int,
+                        help="Seed of MATAM's random steps (matam_assembly.py --seed), "
+                             'for reproducible scaffolds (default: %(default)s)')
     parser.add_argument('--prefix',    required=True,
                         help='Sample / output prefix')
     parser.add_argument('--matam_db',  required=True,
@@ -139,6 +142,8 @@ def main():
         *input_args,
         "--cpu", str(args.cpu),
         "--max_memory", str(args.mem_mb), "-v", "-o", matam_wd,
+        # Without a seed, MATAM's graph compaction seeds from the clock.
+        "--seed", str(args.matam_seed),
         # Only the scaffolds are used: skip MATAM's abundance calculation
         # (a remapping of every read to the scaffolds) and taxonomic assignment.
         "--stop_after", "scaffolding",

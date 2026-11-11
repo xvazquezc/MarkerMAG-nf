@@ -230,7 +230,7 @@ class FilterOutputTests(unittest.TestCase):
             self.assertEqual(read_ids(directory / outputs[0]), CASAVA_IDS[:1])
             self.assertEqual(read_ids(directory / outputs[1]), CASAVA_IDS[:1])
 
-    def run_assembly(self, directory, scaffolds=None):
+    def run_assembly(self, directory, scaffolds=None, extra_argv=()):
         """Run the per-depth wrapper with a fake MATAM; return (command, output, stderr)."""
         forward = directory / "16S_R1.fq.gz"
         reverse = directory / "16S_R2.fq.gz"
@@ -249,7 +249,7 @@ class FilterOutputTests(unittest.TestCase):
         argv = ["markermag_matam_assemble_pct.py", "--forward", str(forward),
                 "--reverse", str(reverse), "--pct", "100", "--prefix", "sample",
                 "--matam_db", "/db/SILVA", "--cpu", "8", "--mem_mb", "30000",
-                "--matam", "/opt/matam/matam_assembly.py"]
+                "--matam", "/opt/matam/matam_assembly.py", *extra_argv]
         stderr = io.StringIO()
         with working_directory(directory), \
                 mock.patch.object(sys, "argv", argv), \
@@ -269,6 +269,16 @@ class FilterOutputTests(unittest.TestCase):
         self.assertNotIn("--no_require_index", command)  # prebuilt indexes only
         self.assertEqual(command[command.index("-d") + 1], "/db/SILVA")
         self.assertEqual(output, ">sample_subsample_100_1\nACGT\n")
+        # MATAM's graph compaction is seeded (it seeds from the clock otherwise).
+        self.assertEqual(command[command.index("--seed") + 1], "42")
+
+    def test_assembly_passes_the_matam_seed(self):
+        with tempfile.TemporaryDirectory() as directory:
+            command, _, _ = self.run_assembly(
+                Path(directory), ">1\nACGT\n", ("--seed", "5", "--matam_seed", "7"))
+        # --seed is the subsampling seed; MATAM gets --matam_seed.
+        self.assertEqual(command[command.index("--seed") + 1], "7")
+        self.assertEqual(command.count("--seed"), 1)
 
     def test_assembly_without_scaffolds_is_an_empty_depth(self):
         # With --stop_after scaffolding MATAM ends normally with no scaffold.

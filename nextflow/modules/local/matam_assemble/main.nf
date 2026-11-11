@@ -26,6 +26,7 @@ process MATAM_ASSEMBLE {
         --reverse   ${reverse}                       \\
         --pct       ${pct}                           \\
         --seed      ${params.matam_subsample_seed}   \\
+        --matam_seed ${params.matam_seed}            \\
         --prefix    ${meta.id}                       \\
         --matam_db  '${matam_db}'                      \\
         --cpu       ${task.cpus}                     \\

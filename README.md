@@ -130,7 +130,9 @@ empty assembly instead of failing the task.
 
 MATAM paired-read subsampling is deterministic. Use
 `--matam_subsample_seed` to choose the random seed (default: `42`); use the
-same seed to reproduce a previous set of subsamples.
+same seed to reproduce a previous set of subsamples. MATAM's own random step
+(graph compaction) uses `--matam_seed` (default: `42`), so the same reads give
+the same scaffolds in every run.
 
 ### Requirements
 

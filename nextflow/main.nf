@@ -44,6 +44,8 @@ def help_message() {
                        Each value spawns an independent HPC job.
       --matam_subsample_seed
                        Random seed for deterministic paired subsampling  [default: ${params.matam_subsample_seed}]
+      --matam_seed     Random seed of MATAM's graph compaction          [default: ${params.matam_seed}]
+                       (reproducible scaffolds from the same reads)
       --matam_threads  CPUs per MATAM assembly job                      [default: ${params.matam_threads}]
                        (tool default: 1; MATAM scales well to ~8–16)
       --matam_mem_mb   Memory per MATAM assembly job (MB)               [default: ${params.matam_mem_mb}]
