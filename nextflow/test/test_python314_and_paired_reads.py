@@ -242,9 +242,12 @@ class FilterOutputTests(unittest.TestCase):
             self.assertTrue(check)
             commands.append(command)
             if scaffolds is not None:
-                workdir = directory / "sample_matam_pct100_wd" / "workdir"
-                workdir.mkdir(parents=True)
-                (workdir / "scaffolds.NR.min_500bp.fa").write_text(scaffolds)
+                # As MATAM: the scaffolds in workdir/, under a name that
+                # depends on its options, and final_assembly.fa linking to them.
+                out_dir = directory / "sample_matam_pct100_wd"
+                (out_dir / "workdir").mkdir(parents=True)
+                (out_dir / "workdir" / "scaffolds.NR.min_800bp.fa").write_text(scaffolds)
+                (out_dir / "final_assembly.fa").symlink_to("workdir/scaffolds.NR.min_800bp.fa")
 
         argv = ["markermag_matam_assemble_pct.py", "--forward", str(forward),
                 "--reverse", str(reverse), "--pct", "100", "--prefix", "sample",
@@ -279,6 +282,12 @@ class FilterOutputTests(unittest.TestCase):
         # --seed is the subsampling seed; MATAM gets --matam_seed.
         self.assertEqual(command[command.index("--seed") + 1], "7")
         self.assertEqual(command.count("--seed"), 1)
+
+    def test_assembly_without_matam_output_is_an_empty_depth(self):
+        with tempfile.TemporaryDirectory() as directory:
+            _, output, stderr = self.run_assembly(Path(directory))
+        self.assertEqual(output, "")
+        self.assertIn("produced no scaffolds at pct=100", stderr)
 
     def test_assembly_without_scaffolds_is_an_empty_depth(self):
         # With --stop_after scaffolding MATAM ends normally with no scaffold.

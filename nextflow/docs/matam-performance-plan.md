@@ -1,5 +1,43 @@
 # MATAM performance and graph-parallelisation plan
 
+## Current status (2026-11-11)
+
+Most of the MATAM side of this plan is now implemented in the fork
+(`xvazquezc/matam`). The sections below are the original plan, kept for
+reference; where they say MATAM 1.6.0 or a serial graph builder, they describe
+the starting point.
+
+- **ovgraphbuild is multi-threaded.** `matam_assembly.py --cpu` is passed as
+  `ovgraphbuild --threads` (at most 24 workers), with byte-identical output.
+  Speed-up is ~9x at 24 threads.
+- **Exact pair sharding exists.** `ovgraphbuild --pair-shard-index/-count`
+  gives pair-count-balanced, contiguous ranges, and merged shards rebuild the
+  serial edge order.
+- **There is a stop point after alignment filtering.**
+  `matam_assembly.py --stop_after alignments_filtering` keeps what the next
+  steps read, and `--resume_from` continues the run. MarkerMAG-nf already
+  uses `--stop_after scaffolding`.
+- **Production-size benchmark (synthetic).** Simulated reads were mapped
+  against a SILVA 144 subset, then the graph was built with 24 threads:
+  - 169,624 reads (14.4 G candidate pairs): 10 min;
+  - 180,320 reads in a skewed community (16.3 G pairs): 17 min;
+  - serial estimates 1.5 h and 2.7 h.
+
+  These data are 40-65x cheaper per pair than the production run (~100 h
+  serial for 170k reads). Full numbers are in the fork's `PLAN.md`.
+- **Decision for now: no scatter/merge orchestration in MarkerMAG-nf.**
+  - With the ~9x thread speed-up, a 100 h serial graph takes ~11 h in one
+    24-CPU task, within a 48 h walltime. Give MATAM_ASSEMBLE 24 CPUs
+    (`--matam_threads 24`) for large samples.
+  - Splitting the graph into separate jobs is only worth it for graphs still
+    over the walltime at 24 threads.
+- **Next, in MATAM (not here):**
+  - 90-95% of candidate pairs share no overlapping alignment and can never
+    give an edge, yet the all-pairs loop tests every one of them. Pruning
+    them (comparing each read only with reads on a shared reference) should
+    cut the graph time far more than extra jobs would.
+  - Then benchmark the production SAM to confirm.
+
 ## Status and scope
 
 This document records the implementation plan for addressing long-running

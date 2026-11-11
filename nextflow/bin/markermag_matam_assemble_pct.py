@@ -106,7 +106,9 @@ def main():
 
     pct_tag = int(args.pct) if args.pct == int(args.pct) else args.pct
     matam_wd = f"{args.prefix}_matam_pct{pct_tag}_wd"
-    assemblies = f"{matam_wd}/workdir/scaffolds.NR.min_500bp.fa"
+    # MATAM's stable output name (a link to the final scaffolds), not the
+    # internal workdir file, whose name depends on MATAM's options.
+    assemblies = f"{matam_wd}/final_assembly.fa"
     out_fasta = f"{args.prefix}_subsample_{pct_tag}_scaffolds.fasta"
 
     forward_subset = (

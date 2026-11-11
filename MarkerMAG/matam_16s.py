@@ -235,11 +235,12 @@ def matam_16s(args):
         ]
         subprocess.run(command, check=True)
 
-        assembly = os.path.join(
-            output_dir, "workdir", "scaffolds.NR.min_500bp.fa")
+        # MATAM's stable output name, not the internal workdir file (whose
+        # name depends on MATAM's options).
+        assembly = os.path.join(output_dir, "final_assembly.fa")
         if os.path.isfile(assembly):
             prefixed = os.path.join(
-                output_dir, "workdir", "scaffolds.NR.min_500bp.prefixed.fa")
+                output_dir, "workdir", "final_assembly.prefixed.fa")
             prefix_fasta(
                 assembly, f"{output_prefix}_subsample_{percentage_tag}",
                 prefixed)
