@@ -139,6 +139,9 @@ def main():
         *input_args,
         "--cpu", str(args.cpu),
         "--max_memory", str(args.mem_mb), "-v", "-o", matam_wd,
+        # Only the scaffolds are used: skip MATAM's abundance calculation
+        # (a remapping of every read to the scaffolds) and taxonomic assignment.
+        "--stop_after", "scaffolding",
         # No --no_require_index: MATAM must use the database's prebuilt
         # SortMeRNA indexes, not have every task index the database (hours for SILVA).
     ]
@@ -155,12 +158,21 @@ def main():
         sys.exit(error.returncode or 1)
 
     if os.path.isfile(assemblies):
+        scaffolds = 0
         with open(out_fasta, "w") as output_handle:
             for record in SeqIO.parse(assemblies, "fasta"):
                 record.id = f"{args.prefix}_subsample_{pct_tag}_{record.id}"
                 record.description = ""
                 SeqIO.write(record, output_handle, "fasta-2line")
+                scaffolds += 1
         print(f"Assemblies written to: {out_fasta}")
+        if scaffolds == 0:
+            # With --stop_after scaffolding, MATAM ends normally when no
+            # scaffold is assembled (it used to stop with an error).
+            print(
+                f"WARNING: MATAM assembled no scaffolds at pct={pct_tag}; "
+                "emitting an empty assembly for this depth.",
+                file=sys.stderr)
     else:
         open(out_fasta, "w").close()
         print(

@@ -1,4 +1,5 @@
 import gzip
+import io
 import importlib
 import importlib.util
 import os
@@ -229,31 +230,52 @@ class FilterOutputTests(unittest.TestCase):
             self.assertEqual(read_ids(directory / outputs[0]), CASAVA_IDS[:1])
             self.assertEqual(read_ids(directory / outputs[1]), CASAVA_IDS[:1])
 
-    def test_assembly_invokes_matam_with_prebuilt_indexes_only(self):
+    def run_assembly(self, directory, scaffolds=None):
+        """Run the per-depth wrapper with a fake MATAM; return (command, output, stderr)."""
+        forward = directory / "16S_R1.fq.gz"
+        reverse = directory / "16S_R2.fq.gz"
+        write_fastq(forward, CASAVA_R1[:1])
+        write_fastq(reverse, CASAVA_R2[:1])
+        commands = []
+
+        def fake_matam(command, check):
+            self.assertTrue(check)
+            commands.append(command)
+            if scaffolds is not None:
+                workdir = directory / "sample_matam_pct100_wd" / "workdir"
+                workdir.mkdir(parents=True)
+                (workdir / "scaffolds.NR.min_500bp.fa").write_text(scaffolds)
+
+        argv = ["markermag_matam_assemble_pct.py", "--forward", str(forward),
+                "--reverse", str(reverse), "--pct", "100", "--prefix", "sample",
+                "--matam_db", "/db/SILVA", "--cpu", "8", "--mem_mb", "30000",
+                "--matam", "/opt/matam/matam_assembly.py"]
+        stderr = io.StringIO()
+        with working_directory(directory), \
+                mock.patch.object(sys, "argv", argv), \
+                mock.patch.object(ASSEMBLE.subprocess, "run", side_effect=fake_matam), \
+                mock.patch("sys.stderr", stderr), mock.patch("sys.stdout", io.StringIO()):
+            ASSEMBLE.main()
+        self.assertEqual(len(commands), 1)
+        output = (directory / "sample_subsample_100_scaffolds.fasta").read_text()
+        return commands[0], output, stderr.getvalue()
+
+    def test_assembly_runs_matam_up_to_scaffolding_with_prebuilt_indexes_only(self):
         with tempfile.TemporaryDirectory() as directory:
-            directory = Path(directory)
-            forward = directory / "16S_R1.fq.gz"
-            reverse = directory / "16S_R2.fq.gz"
-            write_fastq(forward, CASAVA_R1[:1])
-            write_fastq(reverse, CASAVA_R2[:1])
-            commands = []
+            command, output, _ = self.run_assembly(
+                Path(directory), ">1 count=3\nACGT\n")
+        # Only the scaffolds are used: no abundance calculation.
+        self.assertEqual(command[command.index("--stop_after") + 1], "scaffolding")
+        self.assertNotIn("--no_require_index", command)  # prebuilt indexes only
+        self.assertEqual(command[command.index("-d") + 1], "/db/SILVA")
+        self.assertEqual(output, ">sample_subsample_100_1\nACGT\n")
 
-            def fake_matam(command, check):
-                self.assertTrue(check)
-                commands.append(command)
-
-            argv = ["markermag_matam_assemble_pct.py", "--forward", str(forward),
-                    "--reverse", str(reverse), "--pct", "100", "--prefix", "sample",
-                    "--matam_db", "/db/SILVA", "--cpu", "8", "--mem_mb", "30000",
-                    "--matam", "/opt/matam/matam_assembly.py"]
-            with working_directory(directory), \
-                    mock.patch.object(sys, "argv", argv), \
-                    mock.patch.object(ASSEMBLE.subprocess, "run", side_effect=fake_matam), \
-                    mock.patch("sys.stderr"):
-                ASSEMBLE.main()
-            self.assertEqual(len(commands), 1)
-            self.assertNotIn("--no_require_index", commands[0])  # prebuilt indexes only
-            self.assertEqual(commands[0][commands[0].index("-d") + 1], "/db/SILVA")
+    def test_assembly_without_scaffolds_is_an_empty_depth(self):
+        # With --stop_after scaffolding MATAM ends normally with no scaffold.
+        with tempfile.TemporaryDirectory() as directory:
+            _, output, stderr = self.run_assembly(Path(directory), "")
+        self.assertEqual(output, "")
+        self.assertIn("assembled no scaffolds at pct=100", stderr)
 
 
 class PythonCompatibilityTests(unittest.TestCase):

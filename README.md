@@ -123,7 +123,10 @@ The workflow has three per-sample entry points:
 For the two assembly routes, each value in `--matam_pcts` is assembled as an
 independent Nextflow task, making the expensive assemblies suitable for
 parallel HPC submission. The assemblies are then combined, clustered,
-polished, and linked.
+polished, and linked. Each MATAM task stops after scaffolding
+(`--stop_after scaffolding`): MarkerMAG-nf uses only the scaffolds, so MATAM's
+abundance calculation is skipped. A depth that assembles no scaffold gives an
+empty assembly instead of failing the task.
 
 MATAM paired-read subsampling is deterministic. Use
 `--matam_subsample_seed` to choose the random seed (default: `42`); use the
