@@ -228,6 +228,12 @@ MATAM index, or the full database prefix when a directory contains multiple
 indexes. The resolved prefix is passed to MATAM as an absolute path and must
 be visible from every compute node.
 
+The database must already have its SortMeRNA indexes (`<prefix>.clustered.smr/idx`
+and `<prefix>.complete.smr/idx`), as built by `matam_db_preprocessing.py` without
+`--skip_index`. MarkerMAG-nf checks for them before starting any task, and MATAM
+uses only these indexes: it never builds its own in each task (hours for SILVA). To index an existing database once, run
+`index_ref_db.py -i <prefix> --max_memory 30000`.
+
 Use `--matam_executable /path/to/matam/bin/matam_assembly.py` to select
 the fork explicitly.
 

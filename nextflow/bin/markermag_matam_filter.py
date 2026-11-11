@@ -110,6 +110,8 @@ def run_filter(args):
         "--cpu", str(args.cpu),
         "--max_memory", str(args.mem_mb),
         "-v", "--filter_only",
+        # No --no_require_index: MATAM must use the database's prebuilt
+        # SortMeRNA index, not have every task index the database (hours for SILVA).
         "-d", args.matam_db,
     ]
     subprocess.run(command, check=True)

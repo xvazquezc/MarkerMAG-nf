@@ -217,6 +217,7 @@ class FilterOutputTests(unittest.TestCase):
                 self.assertIn("--forward", command)
                 self.assertIn("--reverse", command)
                 self.assertIn("--filter_only", command)
+                self.assertNotIn("--no_require_index", command)  # prebuilt index only
                 self.assertNotIn("-i", command)
                 write_matam_selected_pair(
                     directory / "sample_filter_wd", CASAVA_R1[:1], CASAVA_R2[:1])
@@ -227,6 +228,32 @@ class FilterOutputTests(unittest.TestCase):
             self.assertEqual(outputs, ("sample_16S_R1.fq.gz", "sample_16S_R2.fq.gz"))
             self.assertEqual(read_ids(directory / outputs[0]), CASAVA_IDS[:1])
             self.assertEqual(read_ids(directory / outputs[1]), CASAVA_IDS[:1])
+
+    def test_assembly_invokes_matam_with_prebuilt_indexes_only(self):
+        with tempfile.TemporaryDirectory() as directory:
+            directory = Path(directory)
+            forward = directory / "16S_R1.fq.gz"
+            reverse = directory / "16S_R2.fq.gz"
+            write_fastq(forward, CASAVA_R1[:1])
+            write_fastq(reverse, CASAVA_R2[:1])
+            commands = []
+
+            def fake_matam(command, check):
+                self.assertTrue(check)
+                commands.append(command)
+
+            argv = ["markermag_matam_assemble_pct.py", "--forward", str(forward),
+                    "--reverse", str(reverse), "--pct", "100", "--prefix", "sample",
+                    "--matam_db", "/db/SILVA", "--cpu", "8", "--mem_mb", "30000",
+                    "--matam", "/opt/matam/matam_assembly.py"]
+            with working_directory(directory), \
+                    mock.patch.object(sys, "argv", argv), \
+                    mock.patch.object(ASSEMBLE.subprocess, "run", side_effect=fake_matam), \
+                    mock.patch("sys.stderr"):
+                ASSEMBLE.main()
+            self.assertEqual(len(commands), 1)
+            self.assertNotIn("--no_require_index", commands[0])  # prebuilt indexes only
+            self.assertEqual(commands[0][commands[0].index("-d") + 1], "/db/SILVA")
 
 
 class PythonCompatibilityTests(unittest.TestCase):

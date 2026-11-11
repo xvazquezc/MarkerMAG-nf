@@ -125,8 +125,10 @@ def resolve_matam_db_prefix(db_arg) {
                   "Provide the full prefix for the intended database."
         }
 
-        return clustered_fastas[0].absolutePath
+        def prefix = clustered_fastas[0].absolutePath
             .replaceFirst(/\.clustered\.fasta$/, "")
+        check_matam_db_indexed(prefix)
+        return prefix
     }
 
     def prefix = db_path.toString()
@@ -134,7 +136,38 @@ def resolve_matam_db_prefix(db_arg) {
     if ( !clustered_fasta.toFile().isFile() ) {
         error "ERROR: MATAM database file not found: ${clustered_fasta}"
     }
+    check_matam_db_indexed(prefix)
     return prefix
+}
+
+// MATAM uses only prebuilt SortMeRNA indexes (MarkerMAG-nf never passes
+// --no_require_index: one job per sample and depth must not each index the
+// database), so check before any task that both SortMeRNA indexes
+// exist: a MATAM index record, or the index statistics of an index built
+// before records, which MATAM checks and adopts. MATAM validates the index
+// against its fasta when each task starts.
+def check_matam_db_indexed(prefix) {
+    def missing = []
+    ['clustered', 'complete'].each { kind ->
+        def fasta = new File("${prefix}.${kind}.fasta")
+        def idx_dir = new File("${prefix}.${kind}.smr/idx")
+        if ( !fasta.isFile() ) {
+            error "ERROR: MATAM database file not found: ${fasta}"
+        }
+        def indexed = idx_dir.isDirectory() && (
+            new File(idx_dir, 'matam_index.json').isFile() ||
+            idx_dir.listFiles().any { idx_file -> idx_file.name.endsWith('.idx_stats.yaml') })
+        if ( !indexed ) {
+            missing << idx_dir.toString()
+        }
+    }
+    if ( missing ) {
+        error "ERROR: MATAM database ${prefix} has no SortMeRNA index in: " +
+              "${missing.join(', ')}.\n" +
+              "Index it once before running MarkerMAG-nf, with the MATAM fork:\n" +
+              "  index_ref_db.py -i ${prefix} --max_memory ${params.matam_mem_mb}\n" +
+              "(or remake it with matam_db_preprocessing.py without --skip_index)."
+    }
 }
 
 // ──────────────────────────────────────────────────────────────────────────────

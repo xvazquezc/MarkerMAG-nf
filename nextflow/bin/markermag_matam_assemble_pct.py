@@ -139,6 +139,8 @@ def main():
         *input_args,
         "--cpu", str(args.cpu),
         "--max_memory", str(args.mem_mb), "-v", "-o", matam_wd,
+        # No --no_require_index: MATAM must use the database's prebuilt
+        # SortMeRNA indexes, not have every task index the database (hours for SILVA).
     ]
     try:
         subprocess.run(command, check=True)
