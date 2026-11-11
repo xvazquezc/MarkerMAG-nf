@@ -68,14 +68,14 @@ def open_sequences(path, mode="rt"):
 
 
 def subsample_pair(forward_path, reverse_path, forward_output, reverse_output,
-                   percentage):
+                   percentage, seed=1):
     forward_type = sequence_format(forward_path)
     reverse_type = sequence_format(reverse_path)
     if forward_type != reverse_type:
         raise ValueError("Forward and reverse reads must use the same format")
 
     output_type = "fastq"
-    rng = random.Random(1)
+    rng = random.Random(seed)
     total = 0
     written = 0
     with open_sequences(forward_path) as forward_handle, \
@@ -137,6 +137,33 @@ def parse_uclust_output(uclust_output, cluster_members):
             output_handle.write(f"Cluster_{cluster_id}\t{members}\n")
 
 
+def check_matam_db_indexed(prefix):
+    """Stop unless both SortMeRNA indexes of a MATAM database exist.
+
+    MATAM uses only prebuilt indexes (by default), so check them before any
+    step: a MATAM index record, or the index statistics of an index built
+    before records (which MATAM checks and adopts). Same rule as the Nextflow
+    workflow; MATAM validates each index against its fasta when it starts.
+    """
+    missing = []
+    for kind in ("clustered", "complete"):
+        fasta = f"{prefix}.{kind}.fasta"
+        idx_dir = f"{prefix}.{kind}.smr/idx"
+        if not os.path.isfile(fasta):
+            raise FileNotFoundError(f"MATAM database file not found: {fasta}")
+        indexed = os.path.isdir(idx_dir) and (
+            os.path.isfile(os.path.join(idx_dir, "matam_index.json")) or
+            any(name.endswith(".idx_stats.yaml") for name in os.listdir(idx_dir)))
+        if not indexed:
+            missing.append(idx_dir)
+    if missing:
+        raise RuntimeError(
+            f"MATAM database {prefix} has no SortMeRNA index in: "
+            f"{', '.join(missing)}. Index it once, with the MATAM fork: "
+            f"index_ref_db.py -i {prefix} --max_memory <MB> (or remake it with "
+            "matam_db_preprocessing.py without --skip_index).")
+
+
 def check_inputs(args):
     raw_pair = args["r1"] is not None or args["r2"] is not None
     extracted_pair = args["r16s1"] is not None or args["r16s2"] is not None
@@ -164,6 +191,7 @@ def check_inputs(args):
 
 def matam_16s(args):
     raw_pair, extracted_pair = check_inputs(args)
+    check_matam_db_indexed(args["d"])
     if which(args["matam"]) is None and not os.path.isfile(args["matam"]):
         raise FileNotFoundError(f"Executable not found: {args['matam']}")
     if which("vsearch") is None:
@@ -217,7 +245,7 @@ def matam_16s(args):
             f"{sequence_suffix(reads_reverse)}")
         total, written = subsample_pair(
             reads_forward, reads_reverse, forward_subset, reverse_subset,
-            percentage)
+            percentage, args.get("subsample_seed", 1))
         input_arguments = [
             "--forward", forward_subset, "--reverse", reverse_subset]
 
@@ -232,6 +260,10 @@ def matam_16s(args):
             args["matam"], "-d", args["d"], *input_arguments,
             "--cpu", str(args["t"]), "--max_memory", str(args["mem"]),
             "-v", "-o", output_dir,
+            # Only the scaffolds are used: no abundance calculation.
+            "--stop_after", "scaffolding",
+            # Without a seed, MATAM's graph compaction seeds from the clock.
+            "--seed", str(args.get("matam_seed", 42)),
         ]
         subprocess.run(command, check=True)
 
@@ -285,4 +317,8 @@ if __name__ == "__main__":
     parser.add_argument("-force", action="store_true")
     parser.add_argument("-quiet", action="store_true")
     parser.add_argument("-matam", default="matam_assembly.py")
+    parser.add_argument("-subsample_seed", type=int, default=1,
+                        help="seed of the read subsampling")
+    parser.add_argument("-matam_seed", type=int, default=42,
+                        help="seed of MATAM's graph compaction")
     matam_16s(vars(parser.parse_args()))

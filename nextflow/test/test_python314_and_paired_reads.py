@@ -297,6 +297,90 @@ class FilterOutputTests(unittest.TestCase):
         self.assertIn("assembled no scaffolds at pct=100", stderr)
 
 
+def make_matam_db(directory, indexes=("record", "record")):
+    """A MATAM db prefix with fasta files and the given clustered/complete indexes:
+    "record" (MATAM index record), "stats" (legacy index statistics) or None."""
+    prefix = Path(directory) / "db" / "SILVA"
+    prefix.parent.mkdir()
+    for kind, index in zip(("clustered", "complete"), indexes):
+        Path(f"{prefix}.{kind}.fasta").write_text(">r\nACGT\n")
+        idx_dir = Path(f"{prefix}.{kind}.smr") / "idx"
+        idx_dir.mkdir(parents=True)
+        if index == "record":
+            (idx_dir / "matam_index.json").write_text("{}")
+        elif index == "stats":
+            (idx_dir / "123.idx_stats.yaml").write_text("")
+    return str(prefix)
+
+
+class StandaloneMatam16STests(unittest.TestCase):
+    def test_unindexed_database_is_rejected_before_running(self):
+        with tempfile.TemporaryDirectory() as directory:
+            prefix = make_matam_db(directory, (None, None))
+            with self.assertRaisesRegex(RuntimeError, "index_ref_db.py -i " + prefix):
+                MATAM_16S.check_matam_db_indexed(prefix)
+
+    def test_each_index_is_checked_and_legacy_indexes_are_accepted(self):
+        with tempfile.TemporaryDirectory() as directory:
+            prefix = make_matam_db(directory, ("stats", None))
+            with self.assertRaises(RuntimeError) as error:
+                MATAM_16S.check_matam_db_indexed(prefix)
+            self.assertIn("complete.smr", str(error.exception))
+            self.assertNotIn("clustered.smr", str(error.exception))
+        with tempfile.TemporaryDirectory() as directory:
+            MATAM_16S.check_matam_db_indexed(make_matam_db(directory, ("stats", "record")))
+
+    def test_assembly_runs_stop_after_scaffolding_seeded_and_read_final_assembly(self):
+        with tempfile.TemporaryDirectory() as directory:
+            directory = Path(directory)
+            forward, reverse = directory / "16S_R1.fq", directory / "16S_R2.fq"
+            write_fastq(forward, CASAVA_R1)
+            write_fastq(reverse, CASAVA_R2)
+            args = {"p": "s", "r1": None, "r2": None, "r16s1": str(forward),
+                    "r16s2": str(reverse), "pct": "50,100", "d": make_matam_db(directory),
+                    "i": 0.999, "t": 2, "mem": 1000, "force": False, "quiet": True,
+                    "matam": "matam_assembly.py", "subsample_seed": 1, "matam_seed": 7}
+            matam_commands = []
+
+            def fake_run(command, check):
+                if command[0] == "vsearch":
+                    uc = command[command.index("--uc") + 1]
+                    Path(uc).write_text("S\t0\t4\t*\t*\t*\t*\t*\tx\t*\n")
+                    Path(command[command.index("--centroids") + 1]).write_text(">x\nACGT\n")
+                    return
+                matam_commands.append(command)
+                out_dir = Path(command[command.index("-o") + 1])
+                (out_dir / "workdir").mkdir(parents=True)
+                (out_dir / "workdir" / "scaffolds.NR.min_800bp.fa").write_text(">1\nACGT\n")
+                (out_dir / "final_assembly.fa").symlink_to("workdir/scaffolds.NR.min_800bp.fa")
+
+            with working_directory(directory), \
+                    mock.patch.object(MATAM_16S, "which", return_value="/bin/true"), \
+                    mock.patch.object(MATAM_16S.subprocess, "run", side_effect=fake_run):
+                MATAM_16S.matam_16s(args)
+                combined = Path("s_Matam16S_wd/s_assembled_16S_unclustered.fasta").read_text()
+            self.assertTrue(matam_commands)
+            for command in matam_commands:
+                self.assertEqual(command[command.index("--stop_after") + 1], "scaffolding")
+                self.assertEqual(command[command.index("--seed") + 1], "7")
+            self.assertIn(">s_subsample_100_1\nACGT\n", combined)
+
+    def test_subsampling_seed_is_used(self):
+        with tempfile.TemporaryDirectory() as directory:
+            directory = Path(directory)
+            ids = [f"r{i}" for i in range(200)]
+            forward, reverse = directory / "R1.fq", directory / "R2.fq"
+            write_fastq(forward, ids)
+            write_fastq(reverse, ids)
+            subsets = {}
+            for seed in (1, 1, 2):
+                out1, out2 = directory / f"o{seed}_1.fq", directory / f"o{seed}_2.fq"
+                MATAM_16S.subsample_pair(str(forward), str(reverse), str(out1), str(out2), 50, seed)
+                subsets.setdefault(seed, []).append(read_ids(out1))
+            self.assertEqual(subsets[1][0], subsets[1][1])
+            self.assertNotEqual(subsets[1][0], subsets[2][0])
+
+
 class PythonCompatibilityTests(unittest.TestCase):
     def test_all_package_modules_import(self):
         sys.path.insert(0, str(REPOSITORY))

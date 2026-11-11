@@ -40,6 +40,16 @@ are incompatible with SortMeRNA 6 and later.
 
 1. :warning: Reconstruct 16S with Matam is time-consuming (especially with multiple times of subsampling), so be patient! 
 
+1. The database given with `-d` must already have its SortMeRNA indexes, as
+   built by `matam_db_preprocessing.py` (without `--skip_index`). `matam_16s`
+   checks for them before running anything. To index an existing database,
+   run `index_ref_db.py -i <prefix> --max_memory <MB>` from the MATAM fork.
+
+1. Each subset is assembled with Matam up to scaffolding
+   (`--stop_after scaffolding`), since only the scaffolds are used.
+   Assemblies are reproducible: `-subsample_seed` (default: 1) seeds the read
+   subsampling and `-matam_seed` (default: 42) seeds Matam's graph compaction.
+
 
 ### Prepare Matam database with the latest SILVA SSU database (v138.1)
 
