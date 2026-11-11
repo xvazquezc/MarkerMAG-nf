@@ -39,7 +39,7 @@ def help_message() {
     ── MATAM 16S assembly ────────────────────────────────────────────────────────
       --matam_db       Indexed MATAM DB directory or full prefix       [required
                        for extracted-read and raw-read assembly routes]
-                       Build: index_default_ssu_rrna_db.py -d \$DBDIR
+                       Build: matam_db_preprocessing.py -i SILVA.fasta -d \$DBDIR
       --matam_pcts     Subsample percentages, comma-separated           [default: ${params.matam_pcts}]
                        Each value spawns an independent HPC job.
       --matam_subsample_seed
