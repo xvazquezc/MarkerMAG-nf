@@ -31,12 +31,20 @@ the starting point.
     (`--matam_threads 24`) for large samples.
   - Splitting the graph into separate jobs is only worth it for graphs still
     over the walltime at 24 threads.
-- **Next, in MATAM (not here):**
-  - 90-95% of candidate pairs share no overlapping alignment and can never
-    give an edge, yet the all-pairs loop tests every one of them. Pruning
-    them (comparing each read only with reads on a shared reference) should
-    cut the graph time far more than extra jobs would.
-  - Then benchmark the production SAM to confirm.
+- **Candidate-pair pruning is implemented in MATAM (2026-11-12, not
+  committed yet).**
+  - `ovgraphbuild` now compares each read only with reads on a shared
+    reference: 3.5-5.6% of the pairs on the synthetic sets.
+  - Output and statistics are byte-identical. `--all-pairs` keeps the old
+    loop.
+  - The gain is smaller than the pair count suggests. At 24 threads it is
+    1.28-1.40× wall time (1.35-1.59× CPU), and 1.4-2.3× on single-thread
+    shards. The skipped pairs were only 25-40% of the CPU time; most of the
+    rest is the de novo re-alignment of compatible pairs.
+  - Details are in the fork's `PLAN.md`.
+- **Next, in MATAM (not here):** benchmark the production SAM. Then decide
+  whether to make the de novo check cheaper or to balance chunks by candidate
+  count.
 
 ## Status and scope
 
