@@ -4,7 +4,9 @@ Wrapper for one MATAM assembly run at a specific subsample percentage.
 
 Deterministically subsamples two separate paired-read files, then runs
 matam_assembly.py for this percentage and prefixes the output scaffolds with
-the sample/subsample tag.
+the sample/subsample tag. Given --sam (alignments of the whole read set, made
+once by MATAM_FILTER), MATAM takes the subsample's read mapping from it
+instead of mapping the subsample again.
 
 This script is called once per subsample percentage by the MATAM_ASSEMBLE
 Nextflow process, enabling all percentages to run as independent HPC jobs.
@@ -84,6 +86,11 @@ def main():
     parser.add_argument(
         '--reverse', required=True,
         help='Reverse extracted 16S reads (fastq or fastq.gz)')
+    parser.add_argument(
+        '--sam',
+        help="MATAM's alignments of the whole read set (marker_alignments.sam.gz "
+             'of a --filter_only run), passed as --read_alignments so that the '
+             'subsample is not mapped again')
     parser.add_argument('--pct',       required=True, type=float,
                         help='Subsample percentage (e.g. 25)')
     parser.add_argument('--seed',      default=42, type=int,
@@ -152,6 +159,8 @@ def main():
         # No --no_require_index: MATAM must use the database's prebuilt
         # SortMeRNA indexes, not have every task index the database (hours for SILVA).
     ]
+    if args.sam:
+        command += ["--read_alignments", args.sam]
     try:
         subprocess.run(command, check=True)
     except FileNotFoundError:

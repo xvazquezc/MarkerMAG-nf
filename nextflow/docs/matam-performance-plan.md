@@ -31,8 +31,7 @@ the starting point.
     (`--matam_threads 24`) for large samples.
   - Splitting the graph into separate jobs is only worth it for graphs still
     over the walltime at 24 threads.
-- **Candidate-pair pruning is implemented in MATAM (2026-11-12, not
-  committed yet).**
+- **Candidate-pair pruning is implemented in MATAM (2026-11-12).**
   - `ovgraphbuild` now compares each read only with reads on a shared
     reference: 3.5-5.6% of the pairs on the synthetic sets.
   - Output and statistics are byte-identical. `--all-pairs` keeps the old
@@ -42,9 +41,27 @@ the starting point.
     shards. The skipped pairs were only 25-40% of the CPU time; most of the
     rest is the de novo re-alignment of compatible pairs.
   - Details are in the fork's `PLAN.md`.
+- **Shards and thread chunks are balanced by expected work (2026-11-20, not
+  committed yet).**
+  - Each read is weighted by its comparisons, not its pair count. Output is
+    unchanged.
+  - At 24 threads: 1.10-1.32× wall time.
+  - For 16 single-thread shards, the slowest took 1.45× the mean CPU time
+    (was 2.24-3.04×). This matters most for scatter/merge: a job finishes
+    with its slowest shard.
+  - What is left follows the compatible pairs, whose de novo re-alignment is
+    about 75% of the CPU time.
+- **A one-off 47 min stall is fixed.** SeqAn's daily update check (`wget`)
+  is no longer compiled into `ovgraphbuild`. It kept the graph step's output
+  open, and on HPC nodes without internet access it could stall a task the
+  same way.
+- **Map once, subsample afterwards is implemented (2026-11-20, not committed
+  yet).** Each sample's 16S reads are mapped once. Every depth takes its read
+  mapping from those alignments (`--read_alignments`), and
+  `--matam_map_once false` restores the old way. The assemblies differ less
+  than they do between two MATAM seeds; see the section below.
 - **Next, in MATAM (not here):** benchmark the production SAM. Then decide
-  whether to make the de novo check cheaper or to balance chunks by candidate
-  count.
+  whether to make the de novo check cheaper.
 
 ## Status and scope
 
@@ -345,10 +362,97 @@ Record, per sample and percentage:
 Benchmark at least 1, 4, 8, 16, and 32 shards before selecting a recommended
 Gadi value.
 
-## Deferred plan: map once, subsample afterwards
+## Map once, subsample afterwards (implemented 2026-11-20, not committed yet)
 
-This improvement is intentionally not part of the immediate graph work, but is
-recorded for later implementation.
+**What is done.**
+
+- The MATAM fork has a new option: `matam_assembly.py --read_alignments SAM`.
+  - It takes the read mapping from alignments made earlier, instead of running
+    SortMeRNA.
+  - It selects the pairs with at least one alignment, plus their alignments, in
+    the input order. The rest of the run is unchanged.
+  - The SAM's `@PG` line must show the same database, `--best` and `--evalue`.
+  - Resuming works as after a mapping: there is a completion record.
+  - The clustered database index is not needed.
+- Every run now also publishes `marker_alignments.sam.gz`, beside
+  `marker_reads_R1/R2`.
+- In MarkerMAG-nf:
+  - `MATAM_FILTER` also emits `<id>_16S.sam.gz`.
+  - Samples that enter at the extracted-read checkpoint are mapped once by the
+    new `MATAM_MAP_16S`. It writes only the alignments, so it never writes over
+    a checkpoint file named like a published one.
+  - `MATAM_ASSEMBLE` passes the alignments as `--read_alignments`.
+  - Subsamples are drawn as before, so each percentage gets the same read
+    pairs.
+  - `--matam_map_once false` brings back a mapping per subsample.
+- The standalone `MarkerMAG matam_16s` does the same; `-map_each_subsample`
+  restores the old behaviour.
+
+**It is not exactly the same as mapping each subsample.**
+
+- SortMeRNA's minimum alignment score depends on the total length of all the
+  reads it maps together. With `-e 1e-5`, the minimum was:
+  - 65 for 1% of a 80,840-pair 16S set;
+  - 68 for 10%;
+  - 72 for the whole set;
+  - 84 at about 1,000× that size, emulated with `-e 1e-8`, a scale that
+    represents raw metagenome reads.
+- `--num_alignments` keeps the first alignments that reach that score. A read
+  near the threshold, or with more candidate references than `--best`, can
+  therefore get other alignments, including good ones.
+- After MATAM's alignment filtering, the alignments differed for:
+  - 1.2–1.4% of a subsample's reads, when the mapping was of the 16S set;
+  - 2.7%, when it was of a raw-read-sized set.
+- SortMeRNA itself is deterministic: the same input gives identical output at
+  1 or 24 threads.
+- Map-once makes a read's alignments the same at every depth. With one
+  mapping per subsample, they depend on which other reads were drawn.
+
+**Effect on the assemblies.** This was measured on the mixed SILVA-subset
+set (80,840 pairs of 39 known 16S sequences). Each depth was assembled to
+scaffolding (`--seed 42`) four ways:
+
+- **per-subsample:** one mapping per subsample, as before;
+- **seed 7:** the same as per-subsample, with only MATAM's seed changed;
+- **16S map-once:** taken from a mapping of the whole 16S set (as for
+  checkpoint samples);
+- **raw map-once:** taken from a mapping of the raw-read size, emulated as
+  above (as for raw-read samples).
+
+Scaffolds identical to the per-subsample assembly:
+
+| Depth | Per-subsample scaffolds | Seed 7 | 16S map-once | Raw map-once |
+|---:|---:|---:|---:|---:|
+| 1% | 27 | 8 of 27 | 14 of 24 | 14 of 23 |
+| 5% | 59 | 24 of 64 | 37 of 57 | 26 of 57 |
+| 10% | 62 | 16 of 62 | 29 of 65 | 32 of 61 |
+| 25% | 80 | 22 of 76 | 54 of 80 | 46 of 77 |
+| 50% | 83 | 24 of 86 | 74 of 84 | 43 of 85 |
+
+True sequences recovered (a scaffold at ≥ 99% identity over ≥ 95% of its
+length):
+
+| Depth | Per-subsample | Seed 7 | 16S map-once | Raw map-once |
+|---:|---:|---:|---:|---:|
+| 1% | 17 | 15 | 15 | 14 |
+| 5% | 28 | 27 | 27 | 28 |
+| 10% | 27 | 26 | 27 | 27 |
+| 25% | 30 | 31 | 30 | 30 |
+| 50% | 28 | 30 | 28 | 29 |
+
+Changing only MATAM's seed changes the assemblies more than map-once does,
+and the recovery of the true sequences stays within the seed-to-seed range.
+The differences are therefore within MATAM's own variability.
+
+**Cost.** The selection replaces SortMeRNA at each depth. It took 1.7–3.2 s,
+against 1.4–17.8 s of mapping for 1–50% on this small database at 24
+threads. With full SILVA, each depth would also have to load the clustered
+index. Each depth's job also no longer needs that index.
+
+**Original proposal (kept for reference).** In the implementation, the
+selected SAM keeps the full mapping's record order, which is the input order
+the mate tagging needs, so no re-sorting was required. The full mapping is
+not split.
 
 The current workflow maps each per-percentage read subset independently. With
 the default percentages, this maps an aggregate 266% of the extracted-read set.
@@ -392,5 +496,6 @@ shared-filesystem contention.
 8. Benchmark shard counts on Gadi.
 9. Document the recommended HPC configuration.
 10. Submit the generic MATAM changes upstream.
-11. Revisit the deferred single-mapping design after graph sharding is stable.
+11. ~~Revisit the deferred single-mapping design~~: done (2026-11-20), see
+    "Map once, subsample afterwards".
 

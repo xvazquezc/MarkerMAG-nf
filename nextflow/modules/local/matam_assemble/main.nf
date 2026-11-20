@@ -6,13 +6,17 @@
 //
 // The wrapper always emits one per-depth FASTA. It is empty when the selected
 // subset has no reads or MATAM succeeds without producing scaffolds.
+//
+// `alignments` is MATAM's mapping of the whole read set (MATAM_FILTER): the
+// subsample's read mapping is taken from it, not redone. An empty list maps
+// the subsample again (params.matam_map_once = false).
 
 process MATAM_ASSEMBLE {
     tag   "${meta.id}:pct${pct}"
     label 'process_matam'
 
     input:
-    tuple val(meta), val(pct), path(forward), path(reverse)
+    tuple val(meta), val(pct), path(forward), path(reverse), path(alignments)
     val   matam_db              // absolute MATAM DB prefix on shared storage
 
     output:
@@ -31,6 +35,7 @@ process MATAM_ASSEMBLE {
         --matam_db  '${matam_db}'                      \\
         --cpu       ${task.cpus}                     \\
         --mem_mb    ${params.matam_mem_mb}            \\
-        --matam     '${params.matam_executable}'
+        --matam     '${params.matam_executable}' \
+        ${alignments ? "--sam ${alignments}" : ''}
     """
 }

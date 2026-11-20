@@ -42,6 +42,9 @@ def help_message() {
                        Build: matam_db_preprocessing.py -i SILVA.fasta -d \$DBDIR
       --matam_pcts     Subsample percentages, comma-separated           [default: ${params.matam_pcts}]
                        Each value spawns an independent HPC job.
+      --matam_map_once Map each sample's 16S reads once and reuse the   [default: ${params.matam_map_once}]
+                       alignments at every percentage (false: map every
+                       subsample again, as before)
       --matam_subsample_seed
                        Random seed for deterministic paired subsampling  [default: ${params.matam_subsample_seed}]
       --matam_seed     Random seed of MATAM's graph compaction          [default: ${params.matam_seed}]

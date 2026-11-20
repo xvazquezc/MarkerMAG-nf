@@ -5,7 +5,9 @@ Wrapper for the MATAM --filter_only step (16S read extraction).
 Passes forward and reverse reads to MATAM as separate files, runs
 matam_assembly.py --filter_only, and copies the selected read pairs that MATAM
 publishes as separate R1/R2 files to predictable outputs, checking that the
-two files stay in step.
+two files stay in step. MATAM's alignments of those reads are kept too: every
+subsample's assembly takes its read mapping from them (--read_alignments)
+instead of mapping its reads again.
 
 Called by the MATAM_FILTER Nextflow process.
 """
@@ -14,6 +16,7 @@ import os
 import re
 import sys
 import gzip
+import shutil
 import argparse
 import subprocess
 
@@ -44,6 +47,24 @@ def find_filtered_pair(workdir):
                 "marker_reads_R1/R2.")
         pair.append(matches[0])
     return tuple(pair)
+
+
+# ... and the SortMeRNA alignments of those reads as
+# <out_dir>/marker_alignments.sam[.gz], usable as --read_alignments.
+MATAM_SELECTED_ALIGNMENTS = "marker_alignments"
+
+
+def find_filtered_alignments(workdir):
+    """Return MATAM's alignments of the selected reads from its output directory."""
+    candidates = [os.path.join(workdir, MATAM_SELECTED_ALIGNMENTS + suffix)
+                  for suffix in (".sam.gz", ".sam")]
+    matches = [path for path in candidates if os.path.isfile(path)]
+    if len(matches) != 1:
+        raise RuntimeError(
+            f"Expected exactly one MATAM {MATAM_SELECTED_ALIGNMENTS}.sam[.gz] in {workdir}; "
+            f"found {matches}. The MATAM fork must publish the alignments of its selected "
+            "reads (needed for --read_alignments).")
+    return matches[0]
 
 
 def open_fastq(path, mode):
@@ -98,10 +119,24 @@ def copy_fastq_pair(forward_input, reverse_input, forward_output, reverse_output
             pairs += 1
 
 
+def check_outputs_are_not_inputs(outputs, inputs):
+    """Refuse to write over an input, e.g. through the link Nextflow stages it as."""
+    sources = {os.path.realpath(path) for path in inputs}
+    for output in outputs:
+        if os.path.realpath(output) in sources:
+            raise ValueError(f"Output {output} would overwrite the input of the same name")
+
+
 def run_filter(args):
     sequence_suffix(args.r1)
     sequence_suffix(args.r2)
     wd = f"{args.prefix}_filter_wd"
+    alignments_output = f"{args.prefix}_16S.sam.gz"
+    outputs = [alignments_output, alignments_output[:-3]]
+    if not args.alignments_only:
+        outputs += [f"{args.prefix}_16S_R{mate}{suffix}"
+                    for mate in (1, 2) for suffix in (".fq.gz", ".fq")]
+    check_outputs_are_not_inputs(outputs, [args.r1, args.r2])
     command = [
         args.matam,
         "--forward", args.r1,
@@ -116,13 +151,21 @@ def run_filter(args):
     ]
     subprocess.run(command, check=True)
 
+    # The alignments are only moved: MATAM's run directory is not kept.
+    alignments = find_filtered_alignments(wd)
+    if not alignments.endswith(".gz"):
+        alignments_output = alignments_output[:-3]
+    shutil.move(os.path.realpath(alignments), alignments_output)
+    if args.alignments_only:
+        return None, None, alignments_output
+
     filtered_forward, filtered_reverse = find_filtered_pair(wd)
     suffix = sequence_suffix(filtered_forward)
     forward_output = f"{args.prefix}_16S_R1{suffix}"
     reverse_output = f"{args.prefix}_16S_R2{suffix}"
     copy_fastq_pair(
         filtered_forward, filtered_reverse, forward_output, reverse_output)
-    return forward_output, reverse_output
+    return forward_output, reverse_output, alignments_output
 
 
 def main():
@@ -142,10 +185,14 @@ def main():
                         help='Maximum memory for MATAM (MB)')
     parser.add_argument('--matam',    default='matam_assembly.py',
                         help='Path to matam_assembly.py (default: matam_assembly.py)')
+    parser.add_argument('--alignments_only', action='store_true',
+                        help='Write only the alignments, not the selected read pair '
+                             '(reads that were extracted already, mapped once for '
+                             'all their subsamples)')
     args = parser.parse_args()
 
     try:
-        forward_output, reverse_output = run_filter(args)
+        forward_output, reverse_output, alignments_output = run_filter(args)
     except FileNotFoundError:
         print(f"ERROR: MATAM executable not found: {args.matam}",
               file=sys.stderr)
@@ -156,8 +203,9 @@ def main():
             sys.exit(error.returncode or 1)
         sys.exit(1)
 
-    print(
-        f"16S read pair written to: {forward_output}, {reverse_output}")
+    if forward_output:
+        print(f"16S read pair written to: {forward_output}, {reverse_output}")
+    print(f"Alignments of the 16S reads written to: {alignments_output}")
 
 
 if __name__ == '__main__':

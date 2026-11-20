@@ -135,6 +135,19 @@ def write_matam_selected_pair(directory, forward_ids, reverse_ids, suffix=".fq.g
     return forward, reverse
 
 
+def write_matam_alignments(directory, text="@HD\tVN:1.0\n"):
+    """Write the selected reads' alignments as matam_assembly.py publishes them:
+    marker_alignments.sam.gz, a link into its workdir."""
+    directory = Path(directory)
+    target = directory / "workdir" / "reads.sortmerna_vs_SILVA_b10_m10.sam.gz"
+    target.parent.mkdir(parents=True, exist_ok=True)
+    with gzip.open(target, "wt") as handle:
+        handle.write(text)
+    link = directory / "marker_alignments.sam.gz"
+    link.symlink_to("workdir/" + target.name)
+    return link
+
+
 CASAVA_IDS = ["A00123:8:FC:1:1101:1000:1", "A00123:8:FC:1:1101:1000:2"]
 CASAVA_R1 = [f"{read_id} 1:N:0:ACGT" for read_id in CASAVA_IDS]
 CASAVA_R2 = [f"{read_id} 2:N:0:ACGT" for read_id in CASAVA_IDS]
@@ -159,6 +172,24 @@ class FilterOutputTests(unittest.TestCase):
                 write_fastq(legacy, ["f1", "f1"])
 
                 with self.assertRaisesRegex(RuntimeError, "marker_reads_R1"):
+                    find(directory)
+
+    def test_finds_matam_selected_alignments(self):
+        for find in (FILTER.find_filtered_alignments, MATAM_16S.find_filtered_alignments):
+            with self.subTest(find=find.__module__), \
+                    tempfile.TemporaryDirectory() as directory:
+                link = write_matam_alignments(directory)
+
+                self.assertEqual(find(directory), str(link))
+
+    def test_rejects_missing_selected_alignments(self):
+        # A MATAM without --read_alignments does not publish them.
+        for find in (FILTER.find_filtered_alignments, MATAM_16S.find_filtered_alignments):
+            with self.subTest(find=find.__module__), \
+                    tempfile.TemporaryDirectory() as directory:
+                write_matam_selected_pair(directory, ["f1"], ["f1"])
+
+                with self.assertRaisesRegex(RuntimeError, "marker_alignments"):
                     find(directory)
 
     def test_copies_casava_named_pair_in_step(self):
@@ -200,6 +231,48 @@ class FilterOutputTests(unittest.TestCase):
                     with self.assertRaisesRegex(ValueError, message):
                         copy(forward, reverse, directory / "o1.fq", directory / "o2.fq")
 
+    def filter_args(self, forward, reverse, alignments_only=False):
+        return SimpleNamespace(
+            matam="/opt/matam/matam_assembly.py",
+            r1=str(forward), r2=str(reverse), prefix="sample",
+            cpu=8, mem_mb=30000, matam_db="/db/SILVA", alignments_only=alignments_only,
+        )
+
+    def test_mapping_extracted_reads_writes_only_their_alignments(self):
+        """MATAM_MAP_16S: the inputs may carry the names MATAM_FILTER publishes."""
+        with tempfile.TemporaryDirectory() as directory:
+            directory = Path(directory)
+            forward = directory / "sample_16S_R1.fq.gz"
+            reverse = directory / "sample_16S_R2.fq.gz"
+            write_fastq(forward, CASAVA_R1)
+            write_fastq(reverse, CASAVA_R2)
+
+            def fake_matam(command, check):
+                write_matam_selected_pair(
+                    directory / "sample_filter_wd", CASAVA_R1[:1], CASAVA_R2[:1])
+                write_matam_alignments(directory / "sample_filter_wd")
+
+            with working_directory(directory), mock.patch.object(
+                    FILTER.subprocess, "run", side_effect=fake_matam):
+                outputs = FILTER.run_filter(self.filter_args(forward, reverse, True))
+            self.assertEqual(outputs, (None, None, "sample_16S.sam.gz"))
+            self.assertEqual(read_ids(forward), CASAVA_IDS)
+            self.assertEqual(read_ids(reverse), CASAVA_IDS)
+
+    def test_filter_refuses_to_write_over_its_inputs(self):
+        with tempfile.TemporaryDirectory() as directory:
+            directory = Path(directory)
+            forward = directory / "sample_16S_R1.fq.gz"
+            reverse = directory / "raw_R2.fq.gz"
+            write_fastq(forward, CASAVA_R1)
+            write_fastq(reverse, CASAVA_R2)
+            with working_directory(directory), mock.patch.object(
+                    FILTER.subprocess, "run") as run, \
+                    self.assertRaisesRegex(ValueError, "would overwrite the input"):
+                FILTER.run_filter(self.filter_args(forward, reverse))
+            run.assert_not_called()
+            self.assertEqual(read_ids(forward), CASAVA_IDS)
+
     def test_filter_invokes_matam_with_two_input_files(self):
         with tempfile.TemporaryDirectory() as directory:
             directory = Path(directory)
@@ -207,11 +280,7 @@ class FilterOutputTests(unittest.TestCase):
             reverse = directory / "raw_R2.fastq.gz"
             write_fastq(forward, CASAVA_R1[:1])
             write_fastq(reverse, CASAVA_R2[:1])
-            args = SimpleNamespace(
-                matam="/opt/matam/matam_assembly.py",
-                r1=str(forward), r2=str(reverse), prefix="sample",
-                cpu=8, mem_mb=30000, matam_db="/db/SILVA",
-            )
+            args = self.filter_args(forward, reverse)
 
             def fake_matam(command, check):
                 self.assertTrue(check)
@@ -222,13 +291,19 @@ class FilterOutputTests(unittest.TestCase):
                 self.assertNotIn("-i", command)
                 write_matam_selected_pair(
                     directory / "sample_filter_wd", CASAVA_R1[:1], CASAVA_R2[:1])
+                write_matam_alignments(directory / "sample_filter_wd", "@HD\tVN:1.0\nrecord\n")
 
             with working_directory(directory), mock.patch.object(
                     FILTER.subprocess, "run", side_effect=fake_matam):
                 outputs = FILTER.run_filter(args)
-            self.assertEqual(outputs, ("sample_16S_R1.fq.gz", "sample_16S_R2.fq.gz"))
+            self.assertEqual(outputs, ("sample_16S_R1.fq.gz", "sample_16S_R2.fq.gz",
+                                       "sample_16S.sam.gz"))
             self.assertEqual(read_ids(directory / outputs[0]), CASAVA_IDS[:1])
             self.assertEqual(read_ids(directory / outputs[1]), CASAVA_IDS[:1])
+            # The alignments file itself, not the link MATAM publishes.
+            self.assertFalse((directory / outputs[2]).is_symlink())
+            with gzip.open(directory / outputs[2], "rt") as handle:
+                self.assertEqual(handle.read(), "@HD\tVN:1.0\nrecord\n")
 
     def run_assembly(self, directory, scaffolds=None, extra_argv=()):
         """Run the per-depth wrapper with a fake MATAM; return (command, output, stderr)."""
@@ -283,6 +358,16 @@ class FilterOutputTests(unittest.TestCase):
         self.assertEqual(command[command.index("--seed") + 1], "7")
         self.assertEqual(command.count("--seed"), 1)
 
+    def test_assembly_takes_the_read_mapping_from_the_given_alignments(self):
+        with tempfile.TemporaryDirectory() as directory:
+            command, _, _ = self.run_assembly(
+                Path(directory), ">1\nACGT\n", ("--sam", "sample_16S.sam.gz"))
+            self.assertEqual(command[command.index("--read_alignments") + 1],
+                             "sample_16S.sam.gz")
+        with tempfile.TemporaryDirectory() as directory:
+            command, _, _ = self.run_assembly(Path(directory), ">1\nACGT\n")
+            self.assertNotIn("--read_alignments", command)
+
     def test_assembly_without_matam_output_is_an_empty_depth(self):
         with tempfile.TemporaryDirectory() as directory:
             _, output, stderr = self.run_assembly(Path(directory))
@@ -330,40 +415,67 @@ class StandaloneMatam16STests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             MATAM_16S.check_matam_db_indexed(make_matam_db(directory, ("stats", "record")))
 
+    def run_standalone(self, directory, **extra_args):
+        """Run matam_16s on extracted reads with fake tools; return MATAM commands and output."""
+        forward, reverse = directory / "16S_R1.fq", directory / "16S_R2.fq"
+        write_fastq(forward, CASAVA_R1)
+        write_fastq(reverse, CASAVA_R2)
+        args = {"p": "s", "r1": None, "r2": None, "r16s1": str(forward),
+                "r16s2": str(reverse), "pct": "50,100", "d": make_matam_db(directory),
+                "i": 0.999, "t": 2, "mem": 1000, "force": False, "quiet": True,
+                "matam": "matam_assembly.py", "subsample_seed": 1, "matam_seed": 7,
+                **extra_args}
+        matam_commands = []
+
+        def fake_run(command, check):
+            if command[0] == "vsearch":
+                uc = command[command.index("--uc") + 1]
+                Path(uc).write_text("S\t0\t4\t*\t*\t*\t*\t*\tx\t*\n")
+                Path(command[command.index("--centroids") + 1]).write_text(">x\nACGT\n")
+                return
+            matam_commands.append(command)
+            out_dir = Path(command[command.index("-o") + 1])
+            if "--filter_only" in command:
+                write_matam_alignments(out_dir)
+                return
+            (out_dir / "workdir").mkdir(parents=True)
+            (out_dir / "workdir" / "scaffolds.NR.min_800bp.fa").write_text(">1\nACGT\n")
+            (out_dir / "final_assembly.fa").symlink_to("workdir/scaffolds.NR.min_800bp.fa")
+
+        with working_directory(directory), \
+                mock.patch.object(MATAM_16S, "which", return_value="/bin/true"), \
+                mock.patch.object(MATAM_16S.subprocess, "run", side_effect=fake_run):
+            MATAM_16S.matam_16s(args)
+            combined = Path("s_Matam16S_wd/s_assembled_16S_unclustered.fasta").read_text()
+        return matam_commands, combined
+
+    def test_extracted_reads_are_mapped_once_for_all_subsamples(self):
+        with tempfile.TemporaryDirectory() as directory:
+            commands, _ = self.run_standalone(Path(directory))
+        mapping, *assemblies = commands
+        self.assertIn("--filter_only", mapping)
+        self.assertEqual(len(assemblies), 2)
+        alignments = "s_Matam16S_wd/s_map_16S_reads_wd/marker_alignments.sam.gz"
+        for command in assemblies:
+            self.assertEqual(command[command.index("--read_alignments") + 1], alignments)
+
+    def test_map_each_subsample_maps_every_subsample_again(self):
+        with tempfile.TemporaryDirectory() as directory:
+            commands, _ = self.run_standalone(Path(directory), map_each_subsample=True)
+        self.assertEqual(len(commands), 2)
+        for command in commands:
+            self.assertNotIn("--filter_only", command)
+            self.assertNotIn("--read_alignments", command)
+
     def test_assembly_runs_stop_after_scaffolding_seeded_and_read_final_assembly(self):
         with tempfile.TemporaryDirectory() as directory:
-            directory = Path(directory)
-            forward, reverse = directory / "16S_R1.fq", directory / "16S_R2.fq"
-            write_fastq(forward, CASAVA_R1)
-            write_fastq(reverse, CASAVA_R2)
-            args = {"p": "s", "r1": None, "r2": None, "r16s1": str(forward),
-                    "r16s2": str(reverse), "pct": "50,100", "d": make_matam_db(directory),
-                    "i": 0.999, "t": 2, "mem": 1000, "force": False, "quiet": True,
-                    "matam": "matam_assembly.py", "subsample_seed": 1, "matam_seed": 7}
-            matam_commands = []
-
-            def fake_run(command, check):
-                if command[0] == "vsearch":
-                    uc = command[command.index("--uc") + 1]
-                    Path(uc).write_text("S\t0\t4\t*\t*\t*\t*\t*\tx\t*\n")
-                    Path(command[command.index("--centroids") + 1]).write_text(">x\nACGT\n")
-                    return
-                matam_commands.append(command)
-                out_dir = Path(command[command.index("-o") + 1])
-                (out_dir / "workdir").mkdir(parents=True)
-                (out_dir / "workdir" / "scaffolds.NR.min_800bp.fa").write_text(">1\nACGT\n")
-                (out_dir / "final_assembly.fa").symlink_to("workdir/scaffolds.NR.min_800bp.fa")
-
-            with working_directory(directory), \
-                    mock.patch.object(MATAM_16S, "which", return_value="/bin/true"), \
-                    mock.patch.object(MATAM_16S.subprocess, "run", side_effect=fake_run):
-                MATAM_16S.matam_16s(args)
-                combined = Path("s_Matam16S_wd/s_assembled_16S_unclustered.fasta").read_text()
-            self.assertTrue(matam_commands)
-            for command in matam_commands:
-                self.assertEqual(command[command.index("--stop_after") + 1], "scaffolding")
-                self.assertEqual(command[command.index("--seed") + 1], "7")
-            self.assertIn(">s_subsample_100_1\nACGT\n", combined)
+            commands, combined = self.run_standalone(Path(directory))
+        assemblies = [command for command in commands if "--filter_only" not in command]
+        self.assertTrue(assemblies)
+        for command in assemblies:
+            self.assertEqual(command[command.index("--stop_after") + 1], "scaffolding")
+            self.assertEqual(command[command.index("--seed") + 1], "7")
+        self.assertIn(">s_subsample_100_1\nACGT\n", combined)
 
     def test_subsampling_seed_is_used(self):
         with tempfile.TemporaryDirectory() as directory:

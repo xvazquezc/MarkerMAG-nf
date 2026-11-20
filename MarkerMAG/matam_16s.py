@@ -23,6 +23,8 @@ MarkerMAG matam_16s -p Test -r16s1 extracted_R1.fastq.gz \
     -r16s2 extracted_R2.fastq.gz -t 12 -d DB_PREFIX
 
 Paired reads remain in separate files throughout; interleaved input is unsupported.
+The 16S reads are mapped once; every subsample takes its alignments from that
+mapping (-map_each_subsample maps every subsample again instead).
 
 =================================================================================
 """
@@ -114,6 +116,23 @@ def find_filtered_pair(workdir):
                 f"{workdir}; found {matches}")
         pair.append(matches[0])
     return tuple(pair)
+
+
+# ... and the SortMeRNA alignments of those reads as
+# <out_dir>/marker_alignments.sam[.gz], usable as --read_alignments.
+MATAM_SELECTED_ALIGNMENTS = "marker_alignments"
+
+
+def find_filtered_alignments(workdir):
+    """Return MATAM's alignments of the selected reads from its output directory."""
+    candidates = [os.path.join(workdir, MATAM_SELECTED_ALIGNMENTS + suffix)
+                  for suffix in (".sam.gz", ".sam")]
+    matches = [path for path in candidates if os.path.isfile(path)]
+    if len(matches) != 1:
+        raise RuntimeError(
+            f"MATAM filtering must publish exactly one {MATAM_SELECTED_ALIGNMENTS}.sam[.gz] "
+            f"in {workdir}; found {matches}")
+    return matches[0]
 
 
 def prefix_fasta(input_path, prefix, output_path):
@@ -224,9 +243,25 @@ def matam_16s(args):
             workdir, f"{output_prefix}_16S_R2{sequence_suffix(filtered_forward)}")
         copy_fastq_pair(
             filtered_forward, filtered_reverse, reads_forward, reads_reverse)
+        alignments = (None if args.get("map_each_subsample")
+                      else find_filtered_alignments(filter_dir))
     else:
         reads_forward = args["r16s1"]
         reads_reverse = args["r16s2"]
+        alignments = None
+        if not args.get("map_each_subsample"):
+            # Map the extracted reads once; subsamples are still drawn from
+            # the reads given, and take their alignments from this mapping.
+            map_dir = os.path.join(workdir, f"{output_prefix}_map_16S_reads_wd")
+            report_and_log("Mapping the 16S reads once with MATAM",
+                           log_file, args["quiet"])
+            subprocess.run([
+                args["matam"], "--forward", reads_forward, "--reverse", reads_reverse,
+                "-o", map_dir, "--cpu", str(args["t"]),
+                "--max_memory", str(args["mem"]), "-v", "--filter_only",
+                "-d", args["d"],
+            ], check=True)
+            alignments = find_filtered_alignments(map_dir)
 
     assemblies = []
     for percentage in str_to_num_list(args["pct"]):
@@ -265,6 +300,9 @@ def matam_16s(args):
             # Without a seed, MATAM's graph compaction seeds from the clock.
             "--seed", str(args.get("matam_seed", 42)),
         ]
+        if alignments:
+            # The subsample's read mapping, taken from the whole read set's.
+            command += ["--read_alignments", alignments]
         subprocess.run(command, check=True)
 
         # MATAM's stable output name, not the internal workdir file (whose
@@ -321,4 +359,7 @@ if __name__ == "__main__":
                         help="seed of the read subsampling")
     parser.add_argument("-matam_seed", type=int, default=42,
                         help="seed of MATAM's graph compaction")
+    parser.add_argument("-map_each_subsample", action="store_true",
+                        help="map every subsample again instead of reusing one "
+                             "mapping of the 16S reads")
     matam_16s(vars(parser.parse_args()))

@@ -1,5 +1,7 @@
 // MATAM_FILTER — runs matam_assembly.py --filter_only once per sample.
-// Keeps R1/R2 separate, extracts 16S reads, and emits a paired-file tuple.
+// Keeps R1/R2 separate, extracts 16S reads, and emits a paired-file tuple,
+// plus MATAM's alignments of those reads: every subsample assembly takes its
+// read mapping from them instead of mapping again (params.matam_map_once).
 //
 // Uses the same process_matam label as MATAM_ASSEMBLE so the HPC job
 // requests exactly the memory that MATAM is told it may use (matam_mem_mb).
@@ -15,6 +17,8 @@ process MATAM_FILTER {
     output:
     tuple val(meta), path("${meta.id}_16S_R1*"), path("${meta.id}_16S_R2*"),
           emit: reads_16s
+    tuple val(meta), path("${meta.id}_16S.sam*"),
+          emit: alignments
 
     script:
     """
