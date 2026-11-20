@@ -60,8 +60,18 @@ the starting point.
   mapping from those alignments (`--read_alignments`), and
   `--matam_map_once false` restores the old way. The assemblies differ less
   than they do between two MATAM seeds; see the section below.
-- **Next, in MATAM (not here):** benchmark the production SAM. Then decide
-  whether to make the de novo check cheaper.
+- **The de novo re-alignment is skipped for perfect overlaps (2026-11-20,
+  not committed yet).** When a vectorized score-only pass proves that SeqAn's
+  alignment can only be the ungapped all-match overlap (97-99% of the
+  re-aligned pairs), its statistics are filled in directly; everything else
+  still goes through SeqAn. Output is byte-identical (checked pair by pair
+  on both synthetic sets). At 24 threads the graph now takes 36 s instead
+  of 304 s (mixed) and 69 s instead of 480 s (skewed): 6.9-8.4× on top of
+  the changes above. Details are in the fork's `PLAN.md`.
+- **Next, in MATAM (not here):** benchmark the production SAM. With the
+  changes above, a graph over the walltime at 24 threads now looks unlikely,
+  but the production data are 40-65× more expensive per pair than the
+  synthetic sets, so this needs measuring before dropping the sharding plan.
 
 ## Status and scope
 
