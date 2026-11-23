@@ -68,10 +68,21 @@ the starting point.
   on both synthetic sets). At 24 threads the graph now takes 36 s instead
   of 304 s (mixed) and 69 s instead of 480 s (skewed): 6.9-8.4× on top of
   the changes above. Details are in the fork's `PLAN.md`.
-- **Next, in MATAM (not here):** benchmark the production SAM. With the
-  changes above, a graph over the walltime at 24 threads now looks unlikely,
-  but the production data are 40-65× more expensive per pair than the
-  synthetic sets, so this needs measuring before dropping the sharding plan.
+- **Production benchmark done (2026-11-23): no scatter/merge needed.** The
+  filtered SAMs of the `ferrari/dnasip` run on Gadi (MATAM 1.6.0, whose
+  50-100% subsamples hit the 24 h walltime) were rebuilt with the current
+  `ovgraphbuild`, outputs byte-identical to 1.6.0.
+  - The slow graphs had 0.68-1.97 M reads, not 170k, at a normal cost per
+    pair. Heavy 100%: 22.2 h serial on Gadi, now 16 min at 16 threads on a
+    workstation. Bulk 50%: 37.3 h, now 23 min. Bulk 100% (timed out): 1 h
+    38 min.
+  - Estimated on Gadi with 8 CPUs: up to 4-5 h for the graph of Bulk 100%.
+  - **What now limits MATAM_ASSEMBLE:** `componentsearch` uses about 50
+    bytes per edge (14.6 GB for Heavy 100%'s 294 M edges). Bulk 100%
+    (1.417 G edges) needs about 70 GB, more than the 33-37 GB requested.
+    SortMeRNA mapping (7.5 h for Bulk 100% at 8 CPUs) is the other large
+    step; map once runs it once per sample.
+  - Details are in the fork's `PLAN.md`.
 
 ## Status and scope
 
