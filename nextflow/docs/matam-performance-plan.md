@@ -83,6 +83,12 @@ the starting point.
     SortMeRNA mapping (7.5 h for Bulk 100% at 8 CPUs) is the other large
     step; map once runs it once per sample.
   - Details are in the fork's `PLAN.md`.
+- **`componentsearch` rewritten (2026-11-24, not committed yet).** Same
+  output as upstream for a given seed (byte-identical on Heavy 100% and
+  Bulk 50%), at 8 bytes per edge instead of about 50. Heavy 100%: 2 min,
+  2.3 GB (was 9 min, 14.8 GB). Bulk 100%: 5.5 min, 11.1 GB (was about
+  70 GB). MATAM_ASSEMBLE's memory request no longer needs to cover
+  `componentsearch` beyond the graph-building step's own needs.
 
 ## Status and scope
 
