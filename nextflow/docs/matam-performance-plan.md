@@ -41,8 +41,8 @@ the starting point.
     shards. The skipped pairs were only 25-40% of the CPU time; most of the
     rest is the de novo re-alignment of compatible pairs.
   - Details are in the fork's `PLAN.md`.
-- **Shards and thread chunks are balanced by expected work (2026-11-20, not
-  committed yet).**
+- **Shards and thread chunks are balanced by expected work (2026-11-20,
+  MATAM fork `4f54d4e`).**
   - Each read is weighted by its comparisons, not its pair count. Output is
     unchanged.
   - At 24 threads: 1.10-1.32× wall time.
@@ -55,13 +55,13 @@ the starting point.
   is no longer compiled into `ovgraphbuild`. It kept the graph step's output
   open, and on HPC nodes without internet access it could stall a task the
   same way.
-- **Map once, subsample afterwards is implemented (2026-11-20, not committed
-  yet).** Each sample's 16S reads are mapped once. Every depth takes its read
+- **Map once, subsample afterwards is implemented (2026-11-20, MATAM fork
+  `e4260a8`, here `d70d5f2`).** Each sample's 16S reads are mapped once. Every depth takes its read
   mapping from those alignments (`--read_alignments`), and
   `--matam_map_once false` restores the old way. The assemblies differ less
   than they do between two MATAM seeds; see the section below.
 - **The de novo re-alignment is skipped for perfect overlaps (2026-11-20,
-  not committed yet).** When a vectorized score-only pass proves that SeqAn's
+  MATAM fork `52ed46c`).** When a vectorized score-only pass proves that SeqAn's
   alignment can only be the ungapped all-match overlap (97-99% of the
   re-aligned pairs), its statistics are filled in directly; everything else
   still goes through SeqAn. Output is byte-identical (checked pair by pair
@@ -83,12 +83,20 @@ the starting point.
     SortMeRNA mapping (7.5 h for Bulk 100% at 8 CPUs) is the other large
     step; map once runs it once per sample.
   - Details are in the fork's `PLAN.md`.
-- **`componentsearch` rewritten (2026-11-24, not committed yet).** Same
+- **`componentsearch` rewritten (2026-11-24, MATAM fork `9fc3aa4`).** Same
   output as upstream for a given seed (byte-identical on Heavy 100% and
   Bulk 50%), at 8 bytes per edge instead of about 50. Heavy 100%: 2 min,
   2.3 GB (was 9 min, 14.8 GB). Bulk 100%: 5.5 min, 11.1 GB (was about
   70 GB). MATAM_ASSEMBLE's memory request no longer needs to cover
   `componentsearch` beyond the graph-building step's own needs.
+- **`componentsearch` edge filter fixed (2026-11-24, fork `c0a73f3`).**
+  Upstream's edge filter was given `-N` instead of `-E` and, through a
+  counting bug, removed almost nothing (none of the weight-1 edges on the
+  production graphs). It now removes meta edges of at most `-E` read links,
+  from both sides, and MATAM's default is `-E 0` (no edge filter), so
+  default results don't change. MarkerMAG-nf uses the defaults; nothing to
+  change here. Whether `-E 1` gives better assemblies is still to be
+  tested. Details are in the fork's `PLAN.md` (item 6).
 
 ## Status and scope
 
@@ -389,7 +397,7 @@ Record, per sample and percentage:
 Benchmark at least 1, 4, 8, 16, and 32 shards before selecting a recommended
 Gadi value.
 
-## Map once, subsample afterwards (implemented 2026-11-20, not committed yet)
+## Map once, subsample afterwards (implemented 2026-11-20, `d70d5f2`)
 
 **What is done.**
 
