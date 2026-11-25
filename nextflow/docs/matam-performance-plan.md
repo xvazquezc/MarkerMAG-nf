@@ -116,6 +116,15 @@ the starting point.
   the reads error), `--skip_matam false` without 16S or database (16S
   error before, now the `--matam_db` error), `--skip_matam maybe` (now
   rejected). `nextflow lint`: no new warnings.
+- **MATAM memory request 34 → 24 GB (2026-11-25).** `matam_mem_mb`
+  30000 → 20480, so MATAM jobs request 24 / 28 / 32 GB over the three
+  attempts (`matam_mem_mb` + 4 GB × attempt), within the 32 GB that 8 CPUs
+  carry on Gadi's normal queue. The first attempt was 33.3 GB, just above
+  it. Measured peaks: scaffolding against the complete SILVA 144 index
+  15.5 GB (the largest; SILVA 138.2 is smaller), SortMeRNA read mapping
+  ~8 GB, ovgraphbuild 11.4 GB and componentsearch 11.1 GB on Bulk 100%.
+  16 GB would leave under 0.5 GB for scaffolding with SILVA 144, and a
+  `std::bad_alloc` exits 1, which `errorStrategy` does not retry.
 
 ## Status and scope
 

@@ -51,8 +51,8 @@ def help_message() {
                        (reproducible scaffolds from the same reads)
       --matam_threads  CPUs per MATAM assembly job                      [default: ${params.matam_threads}]
                        (tool default: 1; MATAM scales well to ~8–16)
-      --matam_mem_mb   Memory per MATAM assembly job (MB)               [default: ${params.matam_mem_mb}]
-                       (tool default: 10000; also sets --max_memory in MATAM)
+      --matam_mem_mb   MATAM --max_memory (MB); jobs request this       [default: ${params.matam_mem_mb}]
+                       + 4 GB per attempt (tool default: 10000)
       --skip_matam     Disable MATAM; all samples must provide 16s_fasta [default: ${params.skip_matam}]
       --matam_executable
                        MATAM fork executable                            [default:

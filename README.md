@@ -229,7 +229,7 @@ Paired files are subsampled together by record position before each MATAM task.
         --matam_db /path/to/indexed/SILVA_138_SSURef_NR95 \
         --matam_pcts 1,5,10,25,50,75,100 \
         --matam_threads 8 \
-        --matam_mem_mb 30000 \
+        --matam_mem_mb 20480 \
         --outdir results
 
 `--matam_db` may be a directory containing exactly one `*.clustered.fasta`

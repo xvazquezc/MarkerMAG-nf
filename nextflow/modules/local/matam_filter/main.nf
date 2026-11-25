@@ -3,8 +3,8 @@
 // plus MATAM's alignments of those reads: every subsample assembly takes its
 // read mapping from them instead of mapping again (params.matam_map_once).
 //
-// Uses the same process_matam label as MATAM_ASSEMBLE so the HPC job
-// requests exactly the memory that MATAM is told it may use (matam_mem_mb).
+// Uses the same process_matam label as MATAM_ASSEMBLE: the HPC job requests
+// the memory MATAM is told it may use (matam_mem_mb) plus 4 GB per attempt.
 
 process MATAM_FILTER {
     tag   "${meta.id}"
