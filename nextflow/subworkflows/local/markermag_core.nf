@@ -33,7 +33,7 @@ workflow MARKERMAG_CORE {
     ch_cp_num_16s = Channel.empty()
     ch_cp_num_mag = Channel.empty()
 
-    if ( !params.skip_cp_num ) {
+    if ( !Flags.get(params, 'skip_cp_num') ) {
         ch_get_cp_inputs = ch_samples
             .join( LINK_16S.out.linkages_gnm, by: 0 )
             .map { meta, r1, r2, mag_dir, mag_ext, marker, linkages ->

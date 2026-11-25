@@ -46,13 +46,8 @@ workflow ASSEMBLE_16S {
     ch_filtered_pairs = MATAM_FILTER.out.reads_16s
     ch_checkpoint_pairs = ch_extracted_pairs
 
-    // From the command line, `--matam_map_once false` arrives as the string
-    // "false", which Groovy treats as true.
-    def map_once = params.matam_map_once.toString().toLowerCase()
-    if ( !(map_once in ['true', 'false']) ) {
-        error "ERROR: --matam_map_once must be true or false, not '${params.matam_map_once}'"
-    }
-    if ( map_once == 'true' ) {
+    // Flags.get: `--matam_map_once false` arrives as the string "false".
+    if ( Flags.get(params, 'matam_map_once') ) {
         // Subsamples keep being drawn from the checkpoint reads themselves
         // (as without map-once); MATAM_MAP_16S only provides their alignments.
         MATAM_MAP_16S ( ch_checkpoint_pairs, ch_matam_db )

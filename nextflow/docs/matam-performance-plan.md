@@ -103,6 +103,19 @@ the starting point.
   MATAM's `--min_overlap_edge 0` reproduces them, but the pipeline does not
   expose that option (`markermag_matam_assemble_pct.py` builds the MATAM
   command). Details are in the fork's `PLAN.md` (item 6).
+- **On/off options read as booleans (2026-11-25).** Nextflow 26.10 passes
+  command-line values as strings, and Groovy treats `"false"` as true:
+  `--skip_matam false` skipped MATAM, `--reconstruct_only false` ran in
+  reconstruct-only mode, and `--skip_cp_num false` skipped copy numbers.
+  Same for a quoted `"false"` in a params file. `lib/Flags.groovy` now reads
+  `help`, `reconstruct_only`, `matam_map_once`, `skip_matam` and
+  `skip_cp_num` (`true`/`false` in any case, a bare flag is `true`), and
+  `validate_params` stops on any other value. `matam_map_once` had its own
+  check; it uses the helper now. Checked with the test profile before and
+  after: `--reconstruct_only false` without reads (ran UCLUST before, now
+  the reads error), `--skip_matam false` without 16S or database (16S
+  error before, now the `--matam_db` error), `--skip_matam maybe` (now
+  rejected). `nextflow lint`: no new warnings.
 
 ## Status and scope
 

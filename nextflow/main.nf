@@ -110,6 +110,14 @@ def validate_params() {
         error "ERROR: --input samplesheet is required.\n" +
               "Example: --input assets/samplesheet.csv"
     }
+    // Stop on a value other than true/false before any work starts.
+    ['help', 'reconstruct_only', 'matam_map_once', 'skip_matam', 'skip_cp_num'].each { name ->
+        try {
+            Flags.get(params, name)
+        } catch ( IllegalArgumentException e ) {
+            error "ERROR: ${e.message}"
+        }
+    }
 }
 
 // Resolve either a MATAM database directory or an explicit database prefix.
@@ -201,7 +209,7 @@ def parse_samplesheet_row(row) {
         error "ERROR: Sample '${meta.id}' must provide both r1 and r2, or neither."
     }
 
-    if ( !params.reconstruct_only ) {
+    if ( !Flags.get(params, 'reconstruct_only') ) {
         if ( r1 == [] || r2 == [] ) {
             error "ERROR: Sample '${meta.id}' must provide r1 and r2 for MAG–16S linking."
         }
@@ -211,7 +219,7 @@ def parse_samplesheet_row(row) {
     }
 
     if ( seqs_16s == [] ) {
-        if ( params.skip_matam ) {
+        if ( Flags.get(params, 'skip_matam') ) {
             error "ERROR: Sample '${meta.id}' must provide 16s_fasta when --skip_matam is set."
         }
         if ( !params.matam_db ) {
@@ -231,7 +239,7 @@ def parse_samplesheet_row(row) {
 // ──────────────────────────────────────────────────────────────────────────────
 workflow {
 
-    if ( params.help ) {
+    if ( Flags.get(params, 'help') ) {
         help_message()
         exit 0
     }
@@ -265,7 +273,7 @@ workflow {
     ch_provided_16s_ready = POLISH_16S.out.polished
 
     // ── Path B: run MATAM 16S assembly ──────────────────────────────────────
-    if ( !params.skip_matam && params.matam_db ) {
+    if ( !Flags.get(params, 'skip_matam') && params.matam_db ) {
         // Discover the index prefix when a database directory is supplied,
         // then pass its absolute value without staging or renaming it.
         ch_matam_db = Channel.value(resolve_matam_db_prefix(params.matam_db))
@@ -290,7 +298,7 @@ workflow {
     // ── Merge both paths into a single 16S channel ──────────────────────────
     ch_16s_ready = ch_provided_16s_ready.mix( ch_matam_16s_ready )
 
-    if ( !params.reconstruct_only ) {
+    if ( !Flags.get(params, 'reconstruct_only') ) {
         // ── Reconstruct full sample tuples for MARKERMAG_CORE ───────────────
         ch_samples_for_link = ch_raw
             .map { meta, r1, r2, mag_dir, mag_ext, reads_16s, s16 ->

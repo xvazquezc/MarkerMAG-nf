@@ -32,7 +32,7 @@ process LINK_16S {
           emit: log
 
     script:
-    def skip_cn_flag = params.skip_cp_num ? '-skip_cn' : ''
+    def skip_cn_flag = Flags.get(params, 'skip_cp_num') ? '-skip_cn' : ''
     """
     MarkerMAG link                   \\
         -p       ${meta.id}          \\

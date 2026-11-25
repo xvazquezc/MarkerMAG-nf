@@ -176,6 +176,10 @@ sequences are both populated, `16s_fasta` takes precedence.
 
 All samples must provide `16s_fasta` when `--skip_matam` is used.
 
+On/off options (`--skip_matam`, `--skip_cp_num`, `--reconstruct_only`,
+`--matam_map_once`) take `true` or `false`, or no value for `true`
+(`--skip_matam false` runs MATAM). Any other value stops the run.
+
 ### Reconstruct 16S sequences only
 
 Use `--reconstruct_only` to stop after 16S clustering and Barrnap polishing,
