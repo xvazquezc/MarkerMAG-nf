@@ -93,10 +93,16 @@ the starting point.
   Upstream's edge filter was given `-N` instead of `-E` and, through a
   counting bug, removed almost nothing (none of the weight-1 edges on the
   production graphs). It now removes meta edges of at most `-E` read links,
-  from both sides, and MATAM's default is `-E 0` (no edge filter), so
-  default results don't change. MarkerMAG-nf uses the defaults; nothing to
-  change here. Whether `-E 1` gives better assemblies is still to be
-  tested. Details are in the fork's `PLAN.md` (item 6).
+  from both sides.
+- **MATAM default `-E 1` again (2026-11-25).** `-E 1` was the authors'
+  default (v0.9.3), applied by the Java ComponentSearch until v1.0.0. On a
+  synthetic community and on the Heavy production pairs (SILVA 144, 5 seeds),
+  `-E 1` gave fewer chimeric scaffolds in every seed (synthetic 7.2 → 5.4,
+  Heavy 45.6 → 42.6) with unchanged recovery and coverage. MarkerMAG-nf
+  uses MATAM's defaults, so its assemblies change slightly from 1.6.0 runs.
+  MATAM's `--min_overlap_edge 0` reproduces them, but the pipeline does not
+  expose that option (`markermag_matam_assemble_pct.py` builds the MATAM
+  command). Details are in the fork's `PLAN.md` (item 6).
 
 ## Status and scope
 
