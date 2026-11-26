@@ -189,7 +189,7 @@ without running MAG–16S linking or copy-number estimation:
     nextflow run main.nf \
         --reconstruct_only \
         --input samplesheet.csv \
-        --matam_db /path/to/indexed/SILVA_138_SSURef_NR95 \
+        --matam_db /path/to/SILVA_144/SILVA_144_SSURef_NR99_tax_silva_NR99 \
         --outdir results
 
 Input requirements depend on the selected checkpoint:
@@ -212,7 +212,7 @@ and single-end reads are not supported. Leave `16s_fasta` empty. The original
     cd nextflow
     nextflow run main.nf \
         --input assets/samplesheet.csv \
-        --matam_db /path/to/indexed/SILVA_138_SSURef_NR95 \
+        --matam_db /path/to/SILVA_144/SILVA_144_SSURef_NR99_tax_silva_NR99 \
         --matam_pcts 1,5,10,25,50,75,100 \
         --outdir results
 
@@ -226,7 +226,7 @@ Paired files are subsampled together by record position before each MATAM task.
     cd nextflow
     nextflow run main.nf \
         --input assets/samplesheet.csv \
-        --matam_db /path/to/indexed/SILVA_138_SSURef_NR95 \
+        --matam_db /path/to/SILVA_144/SILVA_144_SSURef_NR99_tax_silva_NR99 \
         --matam_pcts 1,5,10,25,50,75,100 \
         --matam_threads 8 \
         --matam_mem_mb 20480 \
@@ -236,6 +236,19 @@ Paired files are subsampled together by record position before each MATAM task.
 MATAM index, or the full database prefix when a directory contains multiple
 indexes. The resolved prefix is passed to MATAM as an absolute path and must
 be visible from every compute node.
+
+Build the database once from SILVA SSU Ref NR99 (release 144), clustered at 99% identity
+for MarkerMAG:
+
+```bash
+wget https://www.arb-silva.de/fileadmin/silva_databases/release_144/Exports/SILVA_144_SSURef_NR99_tax_silva_trunc.fasta.gz
+gunzip SILVA_144_SSURef_NR99_tax_silva_trunc.fasta.gz
+matam_db_preprocessing.py -i SILVA_144_SSURef_NR99_tax_silva_trunc.fasta -d $DBDIR/SILVA_144 \
+    --out_db_name SILVA_144_SSURef_NR99_tax_silva_NR99 --clustering_id_threshold 0.99 \
+    --cpu 12 --max_memory 30000 -v
+```
+
+`--matam_db` is then `$DBDIR/SILVA_144/SILVA_144_SSURef_NR99_tax_silva_NR99`.
 
 The database must already have its SortMeRNA indexes (`<prefix>.clustered.smr/idx`
 and `<prefix>.complete.smr/idx`), as built by `matam_db_preprocessing.py` without

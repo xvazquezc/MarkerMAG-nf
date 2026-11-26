@@ -40,6 +40,7 @@ def help_message() {
       --matam_db       Indexed MATAM DB directory or full prefix       [required
                        for extracted-read and raw-read assembly routes]
                        Build: matam_db_preprocessing.py -i SILVA.fasta -d \$DBDIR
+                              --clustering_id_threshold 0.99 (see README)
       --matam_pcts     Subsample percentages, comma-separated           [default: ${params.matam_pcts}]
                        Each value spawns an independent HPC job.
       --matam_map_once Map each sample's 16S reads once and reuse the   [default: ${params.matam_map_once}]
@@ -96,7 +97,7 @@ def help_message() {
         nextflow run main.nf \\
             -profile singularity,hpc \\
             --input assets/samplesheet.csv \\
-            --matam_db /path/to/SILVA_138_SSURef_NR95 \\
+            --matam_db /path/to/SILVA_144/SILVA_144_SSURef_NR99_tax_silva_NR99 \\
             --matam_threads 12 \\
             --outdir results
     """.stripIndent()
