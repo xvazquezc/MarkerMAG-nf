@@ -259,9 +259,20 @@ uses only these indexes: it never builds its own in each task (hours for SILVA).
 Indexing runs on a single core, whatever `--cpu` is set to. `--cpu` speeds up only the
 clustering in `matam_db_preprocessing.py`. So an HPC job that only indexes needs just
 1-2 CPUs. That covers `index_ref_db.py`, and `matam_db_preprocessing.py
---clustered_ref` with an existing clustered set. On Gadi, both indexes for SILVA 138.2
-NR99 took 1 h 54 min, with an 8.6 GB peak. Request more CPUs only when the job also
-clusters the database.
+--clustered_ref` with an existing clustered set. Request more CPUs only when the job
+also clusters the database.
+
+On Gadi (`normal` queue), the recipe above for SILVA 144 took 5 h 34 min with 12 CPUs,
+peaking at 16.2 GB:
+
+| Step | Time |
+|---|---|
+| Clustering at 99% (vsearch, 12 CPUs) | 1 h 42 min |
+| Complete index (1 core) | 1 h 56 min |
+| Clustered index (1 core) | 1 h 53 min |
+
+At 99%, SILVA's NR99 set barely shrinks (875,850 of 902,267 sequences are kept), so the
+clustered index costs as much as the complete one. Request at least 20 GB of memory.
 
 Use `--matam_executable /path/to/matam/bin/matam_assembly.py` to select
 the fork explicitly.
