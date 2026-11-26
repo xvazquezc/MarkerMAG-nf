@@ -243,6 +243,13 @@ and `<prefix>.complete.smr/idx`), as built by `matam_db_preprocessing.py` withou
 uses only these indexes: it never builds its own in each task (hours for SILVA). To index an existing database once, run
 `index_ref_db.py -i <prefix> --max_memory 30000`.
 
+Indexing runs on a single core, whatever `--cpu` is set to. `--cpu` speeds up only the
+clustering in `matam_db_preprocessing.py`. So an HPC job that only indexes needs just
+1-2 CPUs. That covers `index_ref_db.py`, and `matam_db_preprocessing.py
+--clustered_ref` with an existing clustered set. On Gadi, both indexes for SILVA 138.2
+NR99 took 1 h 54 min, with an 8.6 GB peak. Request more CPUs only when the job also
+clusters the database.
+
 Use `--matam_executable /path/to/matam/bin/matam_assembly.py` to select
 the fork explicitly.
 
