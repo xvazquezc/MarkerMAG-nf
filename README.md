@@ -134,6 +134,12 @@ same seed to reproduce a previous set of subsamples. MATAM's own random step
 (graph compaction) uses `--matam_seed` (default: `42`), so the same reads give
 the same scaffolds in every run.
 
+`--matam_min_overlap_edge` (default: `1`, MATAM's own default) is passed to MATAM
+as `-E`: graph edges with at most that many read overlaps are removed before the
+components are assembled. `0` turns the edge filter off and reproduces MATAM
+1.0-1.6 for the same `--matam_seed`; on the Heavy production pairs, `1` gave a few
+chimeric scaffolds fewer.
+
 ### Requirements
 
 + Nextflow 23.10 or newer.

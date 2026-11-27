@@ -50,6 +50,10 @@ def help_message() {
                        Random seed for deterministic paired subsampling  [default: ${params.matam_subsample_seed}]
       --matam_seed     Random seed of MATAM's graph compaction          [default: ${params.matam_seed}]
                        (reproducible scaffolds from the same reads)
+      --matam_min_overlap_edge
+                       MATAM -E: remove graph edges with at most this    [default: ${params.matam_min_overlap_edge}]
+                       many read overlaps (0: no edge filter, as in
+                       MATAM 1.0-1.6)
       --matam_threads  CPUs per MATAM assembly job                      [default: ${params.matam_threads}]
                        (tool default: 1; MATAM scales well to ~8–16)
       --matam_mem_mb   MATAM --max_memory (MB); jobs request this       [default: ${params.matam_mem_mb}]
@@ -118,6 +122,10 @@ def validate_params() {
         } catch ( IllegalArgumentException e ) {
             error "ERROR: ${e.message}"
         }
+    }
+    if ( !(params.matam_min_overlap_edge.toString().trim() ==~ /\d+/) ) {
+        error "ERROR: --matam_min_overlap_edge must be a whole number >= 0, " +
+              "not '${params.matam_min_overlap_edge}'"
     }
 }
 

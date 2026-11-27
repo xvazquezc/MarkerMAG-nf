@@ -31,6 +31,7 @@ process MATAM_ASSEMBLE {
         --pct       ${pct}                           \\
         --seed      ${params.matam_subsample_seed}   \\
         --matam_seed ${params.matam_seed}            \\
+        --min_overlap_edge ${params.matam_min_overlap_edge.toString().trim()} \\
         --prefix    ${meta.id}                       \\
         --matam_db  '${matam_db}'                      \\
         --cpu       ${task.cpus}                     \\

@@ -77,6 +77,13 @@ def subsample_paired_reads(forward_path, reverse_path,
     return total_pairs, written_pairs
 
 
+def non_negative_int(text):
+    value = int(text)
+    if value < 0:
+        raise argparse.ArgumentTypeError(f"must be >= 0, not {value}")
+    return value
+
+
 def main():
     parser = argparse.ArgumentParser(
         description='Run MATAM assembly for one subsample percentage')
@@ -99,6 +106,10 @@ def main():
     parser.add_argument('--matam_seed', default=42, type=int,
                         help="Seed of MATAM's random steps (matam_assembly.py --seed), "
                              'for reproducible scaffolds (default: %(default)s)')
+    parser.add_argument('--min_overlap_edge', default=1, type=non_negative_int,
+                        help='MATAM graph edges with at most this many read overlaps are '
+                             'removed (matam_assembly.py -E; 0: no edge filter, as in '
+                             'MATAM 1.0-1.6; default: %(default)s)')
     parser.add_argument('--prefix',    required=True,
                         help='Sample / output prefix')
     parser.add_argument('--matam_db',  required=True,
@@ -153,6 +164,7 @@ def main():
         "--max_memory", str(args.mem_mb), "-v", "-o", matam_wd,
         # Without a seed, MATAM's graph compaction seeds from the clock.
         "--seed", str(args.matam_seed),
+        "-E", str(args.min_overlap_edge),
         # Only the scaffolds are used: skip MATAM's abundance calculation
         # (a remapping of every read to the scaffolds) and taxonomic assignment.
         "--stop_after", "scaffolding",

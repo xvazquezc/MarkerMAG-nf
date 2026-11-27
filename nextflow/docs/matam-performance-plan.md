@@ -100,9 +100,9 @@ the starting point.
   `-E 1` gave fewer chimeric scaffolds in every seed (synthetic 7.2 → 5.4,
   Heavy 45.6 → 42.6) with unchanged recovery and coverage. MarkerMAG-nf
   uses MATAM's defaults, so its assemblies change slightly from 1.6.0 runs.
-  MATAM's `--min_overlap_edge 0` reproduces them, but the pipeline does not
-  expose that option (`markermag_matam_assemble_pct.py` builds the MATAM
-  command). Details are in the fork's `PLAN.md` (item 6).
+  MATAM's `--min_overlap_edge 0` reproduces them; the pipeline passes it as
+  `--matam_min_overlap_edge` (2026-11-27, default 1). Details are in the
+  fork's `PLAN.md` (item 6).
 - **On/off options read as booleans (2026-11-25).** Nextflow 26.10 passes
   command-line values as strings, and Groovy treats `"false"` as true:
   `--skip_matam false` skipped MATAM, `--reconstruct_only false` ran in

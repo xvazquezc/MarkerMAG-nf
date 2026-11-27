@@ -358,6 +358,24 @@ class FilterOutputTests(unittest.TestCase):
         self.assertEqual(command[command.index("--seed") + 1], "7")
         self.assertEqual(command.count("--seed"), 1)
 
+    def test_assembly_passes_the_edge_filter(self):
+        with tempfile.TemporaryDirectory() as directory:
+            command, _, _ = self.run_assembly(Path(directory), ">1\nACGT\n")
+        self.assertEqual(command[command.index("-E") + 1], "1")  # MATAM's default
+        with tempfile.TemporaryDirectory() as directory:
+            command, _, _ = self.run_assembly(
+                Path(directory), ">1\nACGT\n", ("--min_overlap_edge", "0"))
+        self.assertEqual(command[command.index("-E") + 1], "0")
+        self.assertEqual(command.count("-E"), 1)
+
+    def test_assembly_rejects_a_negative_edge_filter(self):
+        with tempfile.TemporaryDirectory() as directory:
+            with self.assertRaises(SystemExit):
+                self.run_assembly(Path(directory), ">1\nACGT\n", ("--min_overlap_edge", "-1"))
+        with self.assertRaisesRegex(Exception, "must be >= 0"):
+            ASSEMBLE.non_negative_int("-1")
+        self.assertEqual(ASSEMBLE.non_negative_int("0"), 0)
+
     def test_assembly_takes_the_read_mapping_from_the_given_alignments(self):
         with tempfile.TemporaryDirectory() as directory:
             command, _, _ = self.run_assembly(
