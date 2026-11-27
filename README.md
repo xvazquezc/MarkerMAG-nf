@@ -91,8 +91,12 @@ How to run
    3. Input reads need to be **quality-filtered** and in fasta format (no quality score).
    
 + MarkerMAG is designed for paired short-read data such as Illumina R1/R2
-  files. Read identifiers are preserved. Mate identity is obtained from paired
-  file position and SAM first/second-mate flags rather than name suffixes.
+  files. Read identifiers are never changed. Each sample's mate naming is
+  detected from its first 1,000 read pairs: mates sharing the read ID (CASAVA
+  1.8+, SRA), or IDs that differ only by a `/1 /2`, `.1 .2`, `_1 _2` or `:1 :2`
+  suffix. Mates are then matched by that naming; which mate a SAM record is
+  comes from its first/second-mate flags. R1/R2 files out of step, or mixing
+  two namings, stop the run.
 
 + Although you can use your preferred tool to reconstruct 16S rRNA gene sequences from the metagenomic dataset, 
    MarkerMAG does have a supplementary module (`matam_16s`) to reconstruct 16S rRNA genes. 

@@ -13,7 +13,6 @@ Called by the MATAM_FILTER Nextflow process.
 """
 
 import os
-import re
 import sys
 import gzip
 import shutil
@@ -86,12 +85,24 @@ def read_fastq_record(handle, source):
     return record
 
 
-_MATE_SUFFIX = re.compile(r"/[12]$")
+_MATE_SEPARATORS = "/._:"
 
 
-def pair_id(header_line):
-    """Pair identifier of a FASTQ header: first token without a /1 or /2 suffix."""
-    return _MATE_SUFFIX.sub("", header_line[1:].split()[0])
+def is_same_pair(id1, id2):
+    """True if R1 and R2 read IDs (first header tokens) name the same pair.
+
+    Mates share the ID (CASAVA 1.8+, SRA), or the IDs differ only by a trailing
+    mate number 1/2 after the same separator: r/1 r/2, r.1 r.2 (MarkerMAG's
+    naming, fastq-dump --readids), r_1 r_2, r:1 r:2. Same rule as MATAM's
+    fastq_utils.is_same_pair, which checks the input of every MATAM run.
+    """
+    return id1 == id2 or (len(id1) == len(id2) > 2 and id1[:-1] == id2[:-1]
+                          and id1[-2] in _MATE_SEPARATORS and id1[-1] == "1" and id2[-1] == "2")
+
+
+def header_id(header_line):
+    """First token of a FASTQ header line, without the '@'."""
+    return header_line[1:].split()[0]
 
 
 def copy_fastq_pair(forward_input, reverse_input, forward_output, reverse_output):
@@ -110,7 +121,7 @@ def copy_fastq_pair(forward_input, reverse_input, forward_output, reverse_output
                 raise ValueError(
                     "Paired FASTQ files have different record counts: "
                     f"{forward_input}, {reverse_input}")
-            if pair_id(forward_record[0]) != pair_id(reverse_record[0]):
+            if not is_same_pair(header_id(forward_record[0]), header_id(reverse_record[0])):
                 raise ValueError(
                     "Paired FASTQ records are out of step: "
                     f"{forward_record[0].strip()} vs {reverse_record[0].strip()}")

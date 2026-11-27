@@ -33,8 +33,13 @@ import matplotlib as mpl
 mpl.use('Agg')
 import matplotlib.pyplot as plt
 from MarkerMAG.read_pairing import (
+    LEGACY_MATE_SEPARATOR,
     canonical_read_id,
+    describe_mate_separator,
+    detect_mate_separator,
     sam_read_id_and_mate,
+    split_sam_by_pair,
+    with_end_record,
 )
 
 
@@ -558,19 +563,21 @@ def parse_sam16s_worker(argument_list):
     mismatch_cutoff         = argument_list[3]
     marker_len_dict         = argument_list[4]
     unlinked_refs_to_ignore = argument_list[5]
+    # The sample's mate naming (pool workers don't share the parent's state)
+    mate_separator          = argument_list[6] if len(argument_list) > 6 else LEGACY_MATE_SEPARATOR
 
     MappingRecord_file_handle = open(MappingRecord_file, 'w')
     current_read_base = ''
     current_read_base_r1_16s_ref_dict = dict()
     current_read_base_r2_16s_ref_dict = dict()
     with open(sorted_sam) as sorted_sam_opened:
-        for each_read in sorted_sam_opened:
+        for each_read in with_end_record(sorted_sam_opened):
             if not each_read.startswith('@'):
                 each_read_split = each_read.strip().split('\t')
                 ref_id = each_read_split[2]
                 if ref_id not in unlinked_refs_to_ignore:
                     cigar = each_read_split[5]
-                    read_id_base, read_strand = sam_read_id_and_mate(each_read_split)
+                    read_id_base, read_strand = sam_read_id_and_mate(each_read_split, mate_separator)
                     ref_pos = int(each_read_split[3])
 
                     if current_read_base == '':
@@ -798,47 +805,6 @@ def remove_high_mismatch(sam_in, aln_len_cutoff, mismatch_cutoff, sam_out):
     sam_out_handle.close()
 
 
-def parse_sam_file_with_multiprocessing(sam_sorted_by_read, sam_sorted_line_num_txt, sam_sorted_by_read_split, MappingRecord_folder, min_M_len_16s, mismatch_cutoff, marker_len_dict, num_threads):
-
-    # get the number of lines per file
-    os.system('wc -l %s > %s' % (sam_sorted_by_read, sam_sorted_line_num_txt))
-    sam16s_line_num = int(open(sam_sorted_line_num_txt).readline().strip().split(' ')[0])
-    os.remove(sam_sorted_line_num_txt)
-    line_num_per_file = int(round(sam16s_line_num / (num_threads * 10))) + 10
-
-    # split sam file
-    os.mkdir(sam_sorted_by_read_split)
-    split_sam_cmd = 'split -l %s %s %s/splitted_sam_ ' % (line_num_per_file, sam_sorted_by_read, sam_sorted_by_read_split)
-    os.system(split_sam_cmd)
-
-    # get splitted sam file list
-    splitted_sam_file_list = [os.path.basename(file_name) for file_name in glob.glob('%s/splitted_sam_*' % sam_sorted_by_read_split)]
-
-    # prepare lol for mp worker
-    list_for_parse_sam16s_worker = []
-    splitted_sam_mp_file_set = set()
-    for splitted_sam_file in splitted_sam_file_list:
-        pwd_splitted_sam_file = '%s/%s' % (sam_sorted_by_read_split, splitted_sam_file)
-        pwd_splitted_sam_mp_file = '%s/%s_mp.txt' % (MappingRecord_folder, splitted_sam_file)
-        splitted_sam_mp_file_set.add(pwd_splitted_sam_mp_file)
-        list_for_parse_sam16s_worker.append([pwd_splitted_sam_file,
-                                             pwd_splitted_sam_mp_file,
-                                             min_M_len_16s,
-                                             mismatch_cutoff,
-                                             marker_len_dict])
-
-    # parsing mappping results with multiprocessing
-    pool_parse_sam16s = mp.Pool(processes=num_threads)
-    pool_parse_sam16s.map(parse_sam16s_worker, list_for_parse_sam16s_worker)
-    pool_parse_sam16s.close()
-    pool_parse_sam16s.join()
-
-    #report_and_log(('Round 1: removing splitted subsets from disk'), pwd_log_file, keep_quiet)
-    os.system('rm -r %s' % sam_sorted_by_read_split)
-
-    return splitted_sam_mp_file_set
-
-
 def get_cigar_aln_len(cigar_splitted):
     # aligned_len: M I X =
     aligned_len = 0
@@ -851,13 +817,13 @@ def get_cigar_aln_len(cigar_splitted):
     return aligned_len
 
 
-def keep_only_both_mapped_reads(sam_in, sam_out):
+def keep_only_both_mapped_reads(sam_in, sam_out, mate_separator=LEGACY_MATE_SEPARATOR):
     mapping_dic = {}
     with open(sam_in) as sorted_sam_opened:
         for each_read in sorted_sam_opened:
             if not each_read.startswith('@'):
                 each_read_split = each_read.strip().split('\t')
-                read_id_base, read_strand = sam_read_id_and_mate(each_read_split)
+                read_id_base, read_strand = sam_read_id_and_mate(each_read_split, mate_separator)
 
                 if read_id_base not in mapping_dic:
                     mapping_dic[read_id_base] = {read_strand}
@@ -876,7 +842,7 @@ def keep_only_both_mapped_reads(sam_in, sam_out):
                 sam_out_handle.write(each_read)
             else:
                 each_read_split = each_read.strip().split('\t')
-                read_id_base = canonical_read_id(each_read_split[0])
+                read_id_base = canonical_read_id(each_read_split[0], mate_separator)
                 if read_id_base in mapping_dic_both_mapped:
                     sam_out_handle.write(each_read)
     sam_out_handle.close()
@@ -968,7 +934,8 @@ def get_well_aligned_reads_pct_dict(mapped_to_linked_16s_sam, mapped_to_all_16s_
 
 
 def filter_sam_file(splitted_sam_mp_file_set, min_insert_size_16s, both_pair_mapped, keep_uniq,
-                    sam_file_sorted, sam_file_filtered, sam_file_filtered_random):
+                    sam_file_sorted, sam_file_filtered, sam_file_filtered_random,
+                    mate_separator=LEGACY_MATE_SEPARATOR):
 
     # read filter results into dict
     large_insert_size_paired_read_num = 0
@@ -1056,7 +1023,7 @@ def filter_sam_file(splitted_sam_mp_file_set, min_insert_size_16s, both_pair_map
                 pwd_sam_file_filtered_handle.write(each_line)
             else:
                 each_line_split = each_line.strip().split('\t')
-                read_base, read_strand = sam_read_id_and_mate(each_line_split)
+                read_base, read_strand = sam_read_id_and_mate(each_line_split, mate_separator)
                 ref_id = each_line_split[2]
                 if read_base in MappingRecord_dict:
 
@@ -1845,6 +1812,12 @@ def get_16s_copy_num(args):
     hmm_folder_arc                      = args['hmm_arc']
     reads_subsample_pct_for_mag_cov_gc  = args['subsample_pct']
 
+    # How the R1/R2 read IDs name the mates (shared ID, or a /1 .1 _1 :1
+    # suffix). Read IDs are kept as they are; mates are matched by this.
+    mate_separator = detect_mate_separator(reads_file_r1, reads_file_r2)
+    if not keep_quiet:
+        print('Get_cn: read pairs: %s' % describe_mate_separator(mate_separator))
+
     keep_uniq                           = False
     window_len                          = 100
     ignore_ends_len_mag                 = 500
@@ -2043,7 +2016,8 @@ def get_16s_copy_num(args):
 
         #keep_only_both_mapped_reads
         report_and_log(('Get_cn: removing singletons'), pwd_log_file, keep_quiet)
-        keep_only_both_mapped_reads(sam_file_reads_to_mag_filtered, sam_file_reads_to_mag_filtered_both_mapped)
+        keep_only_both_mapped_reads(sam_file_reads_to_mag_filtered, sam_file_reads_to_mag_filtered_both_mapped,
+                                    mate_separator)
         os.remove(sam_file_reads_to_mag_filtered)
 
         # sort filtered_sam
@@ -2282,8 +2256,8 @@ def get_16s_copy_num(args):
 
     # split sam file
     os.mkdir(all_16s_sam_file_sorted_split)
-    split_sam_cmd = 'split -l %s %s %s/splitted_sam_ ' % (line_num_per_file, all_16s_sam_file_sorted, all_16s_sam_file_sorted_split)
-    os.system(split_sam_cmd)
+    split_sam_by_pair(all_16s_sam_file_sorted, all_16s_sam_file_sorted_split,
+                      line_num_per_file, mate_separator)
 
     # get splitted sam file list
     splitted_sam_file_list = [os.path.basename(file_name) for file_name in glob.glob('%s/splitted_sam_*' % all_16s_sam_file_sorted_split)]
@@ -2304,8 +2278,8 @@ def get_16s_copy_num(args):
         pwd_splitted_sam_mp_file_linked = '%s/%s_mp.txt' % (linked_16s_sam_mp_folder, splitted_sam_file)
         splitted_sam_mp_file_set_all.add(pwd_splitted_sam_mp_file_all)
         splitted_sam_mp_file_set_linked.add(pwd_splitted_sam_mp_file_linked)
-        list_for_parse_sam16s_worker_all.append([pwd_splitted_sam_file,    pwd_splitted_sam_mp_file_all,    min_M_len, mismatch_cutoff, marker_len_dict, []])
-        list_for_parse_sam16s_worker_linked.append([pwd_splitted_sam_file, pwd_splitted_sam_mp_file_linked, min_M_len, mismatch_cutoff, marker_len_dict, unlinked_16s_set])
+        list_for_parse_sam16s_worker_all.append([pwd_splitted_sam_file,    pwd_splitted_sam_mp_file_all,    min_M_len, mismatch_cutoff, marker_len_dict, [], mate_separator])
+        list_for_parse_sam16s_worker_linked.append([pwd_splitted_sam_file, pwd_splitted_sam_mp_file_linked, min_M_len, mismatch_cutoff, marker_len_dict, unlinked_16s_set, mate_separator])
 
     # parsing mappping results for all 16S
     report_and_log(('Get_cn: parsing alignments of reads to all 16S with multiple threads'), pwd_log_file, keep_quiet)
@@ -2328,11 +2302,13 @@ def get_16s_copy_num(args):
 
     report_and_log(('Get_cn: filtering sam file for all 16S'), pwd_log_file, keep_quiet)
     filter_sam_file(splitted_sam_mp_file_set_all, min_insert_size_16s, both_pair_mapped, keep_uniq,
-                    all_16s_sam_file_sorted, all_16s_sam_file_filtered, all_16s_sam_file_filtered_random)
+                    all_16s_sam_file_sorted, all_16s_sam_file_filtered, all_16s_sam_file_filtered_random,
+                    mate_separator)
 
     report_and_log(('Get_cn: filtering sam file for linked 16S'), pwd_log_file, keep_quiet)
     filter_sam_file(splitted_sam_mp_file_set_linked, min_insert_size_16s, both_pair_mapped, keep_uniq,
-                    all_16s_sam_file_sorted, linked_16s_sam_file_filtered, linked_16s_sam_file_filtered_random)
+                    all_16s_sam_file_sorted, linked_16s_sam_file_filtered, linked_16s_sam_file_filtered_random,
+                    mate_separator)
 
     # sort sam file
     report_and_log(('Get_cn: sorting filtered sam file by contig id'), pwd_log_file, keep_quiet)

@@ -35,8 +35,12 @@ from shutil import which
 from MarkerMAG.MarkerMAG_config import config_dict
 from MarkerMAG.read_pairing import (
     canonical_read_id,
+    describe_mate_separator,
+    detect_mate_separator,
     extract_reads_by_pair_id,
     sam_read_id_and_mate,
+    split_sam_by_pair,
+    with_end_record,
 )
 
 
@@ -1239,10 +1243,11 @@ def extract_reads_worker(argument_list):
     reads_fmt = argument_list[1]
     reads_to_extract = argument_list[2]
     reads_file_out = argument_list[3]
+    mate_separator = argument_list[4]
 
     reads_file_out_handle = open(reads_file_out, 'w')
     for read_record in SeqIO.parse(reads_file_in, reads_fmt):
-        if canonical_read_id(read_record.id) in reads_to_extract:
+        if canonical_read_id(read_record.id, mate_separator) in reads_to_extract:
             if reads_fmt == 'fasta':
                 reads_file_out_handle.write('>%s\n' % read_record.id)
                 reads_file_out_handle.write('%s\n' % read_record.seq)
@@ -1436,17 +1441,18 @@ def parse_sam16s_worker(argument_list):
     min_M_len_16s       = argument_list[2]
     mismatch_cutoff     = argument_list[3]
     marker_len_dict     = argument_list[4]
+    mate_separator      = argument_list[5]
 
     MappingRecord_file_handle = open(MappingRecord_file, 'w')
     current_read_base = ''
     current_read_base_r1_16s_ref_dict = dict()
     current_read_base_r2_16s_ref_dict = dict()
     with open(sorted_sam) as sorted_sam_opened:
-        for each_read in sorted_sam_opened:
+        for each_read in with_end_record(sorted_sam_opened):
             if not each_read.startswith('@'):
                 each_read_split = each_read.strip().split('\t')
                 cigar = each_read_split[5]
-                read_id_base, read_strand = sam_read_id_and_mate(each_read_split)
+                read_id_base, read_strand = sam_read_id_and_mate(each_read_split, mate_separator)
                 ref_id = each_read_split[2]
                 ref_pos = int(each_read_split[3])
 
@@ -1634,6 +1640,7 @@ def parse_rd2_sam_gnm_worker(arguments_list):
     mismatch_cutoff                              = arguments_list[4]
     round_2_ctg_end_seq_len_dict                 = arguments_list[5]
     ctg_ignore_region_dict_2rd                   = arguments_list[6]
+    mate_separator                               = arguments_list[7]
 
     free_living_ctg_ref_file_handle = open(free_living_ctg_ref_file, 'w')
     free_living_ctg_ref_file_with_pos_cigar_handle = open(free_living_ctg_ref_file_with_pos_cigar, 'w')
@@ -1641,11 +1648,11 @@ def parse_rd2_sam_gnm_worker(arguments_list):
     current_read_base_r1_ctg_ref_dict_rd2 = dict()
     current_read_base_r2_ctg_ref_dict_rd2 = dict()
     with open(rd1_unlinked_mags_sam_bowtie_reformat_sorted) as rd1_unlinked_mags_sam_bowtie_reformat_sorted_opened:
-        for each_line in rd1_unlinked_mags_sam_bowtie_reformat_sorted_opened:
+        for each_line in with_end_record(rd1_unlinked_mags_sam_bowtie_reformat_sorted_opened):
             if not each_line.startswith('@'):
                 each_line_split = each_line.strip().split('\t')
                 cigar = each_line_split[5]
-                read_id_base, read_strand = sam_read_id_and_mate(each_line_split)
+                read_id_base, read_strand = sam_read_id_and_mate(each_line_split, mate_separator)
                 ref_id = each_line_split[2]
                 ref_pos = int(each_line_split[3])
 
@@ -2234,6 +2241,12 @@ def link_16s(args, config_dict):
     max_16s_div                         = args['max_16s_div']
     skip_calculate_copy_num             = args['skip_cn']
 
+    # How the R1/R2 read IDs name the mates (shared ID, or a /1 .1 _1 :1
+    # suffix). Read IDs are kept as they are; mates are matched by this.
+    mate_separator = detect_mate_separator(reads_file_r1, reads_file_r2)
+    if not keep_quiet:
+        print('Read pairs: %s' % describe_mate_separator(mate_separator))
+
     # round_2_mira                        = args['mira']
     # mira_tmp_dir                        = args['mira_tmp']
     keep_ctg_end_16s                    = args['keep_ctg_end_16s']
@@ -2599,8 +2612,8 @@ def link_16s(args, config_dict):
 
     report_and_log(('Rd1: splitting sam file'), pwd_log_file, keep_quiet)
     os.mkdir(input_reads_to_16s_sam_sorted_split_folder)
-    split_sam_cmd = 'split -l %s %s %s/splitted_sam_ ' % (line_num_per_file, input_reads_to_16s_sam_sorted, input_reads_to_16s_sam_sorted_split_folder)
-    os.system(split_sam_cmd)
+    split_sam_by_pair(input_reads_to_16s_sam_sorted, input_reads_to_16s_sam_sorted_split_folder,
+                      line_num_per_file, mate_separator)
 
     report_and_log(('Rd1: analysing mappping results with %s threads' % num_threads), pwd_log_file, keep_quiet)
     os.mkdir(input_reads_to_16s_sam_MappingRecord_folder)
@@ -2619,7 +2632,8 @@ def link_16s(args, config_dict):
                                              pwd_splitted_sam_mp_file,
                                              min_M_len_16s,
                                              mismatch_cutoff,
-                                             marker_len_dict])
+                                             marker_len_dict,
+                                             mate_separator])
 
     pool_parse_sam16s = mp.Pool(processes=num_threads)
     pool_parse_sam16s.map(parse_sam16s_worker, list_for_parse_sam16s_worker)
@@ -2683,10 +2697,10 @@ def link_16s(args, config_dict):
     # Stream from the original files; identifiers are never rewritten.
     extract_reads_by_pair_id(
         reads_file_r1_fasta, to_extract_read_base_list, rd1_extracted_p_r1,
-        sequence_format='fasta')
+        sequence_format='fasta', mate_separator=mate_separator)
     extract_reads_by_pair_id(
         reads_file_r2_fasta, to_extract_read_base_list, rd1_extracted_p_r2,
-        sequence_format='fasta')
+        sequence_format='fasta', mate_separator=mate_separator)
 
     # if keep_tmp is False:
     #     os.remove(rd1_r1_to_extract)
@@ -2739,7 +2753,7 @@ def link_16s(args, config_dict):
             if not each_read.startswith('@'):
                 each_read_split = each_read.strip().split('\t')
                 cigar = each_read_split[5]
-                read_id_base, read_strand = sam_read_id_and_mate(each_read_split)
+                read_id_base, read_strand = sam_read_id_and_mate(each_read_split, mate_separator)
                 ref_id = each_read_split[2]
                 ref_pos = int(each_read_split[3])
 
@@ -3129,10 +3143,10 @@ def link_16s(args, config_dict):
 
     extract_reads_by_pair_id(
         reads_file_r1_fasta, all_linking_reads_base_set,
-        linking_reads_r1_fasta, sequence_format='fasta')
+        linking_reads_r1_fasta, sequence_format='fasta', mate_separator=mate_separator)
     extract_reads_by_pair_id(
         reads_file_r2_fasta, all_linking_reads_base_set,
-        linking_reads_r2_fasta, sequence_format='fasta')
+        linking_reads_r2_fasta, sequence_format='fasta', mate_separator=mate_separator)
     if keep_tmp is False:
         os.remove(linking_reads_r1_txt)
         os.remove(linking_reads_r2_txt)
@@ -3154,9 +3168,9 @@ def link_16s(args, config_dict):
     # read sequence of linking reads into dict
     linking_read_seq_dict = {}
     for linking_r1 in SeqIO.parse(linking_reads_r1_fasta, 'fasta'):
-        linking_read_seq_dict[(canonical_read_id(linking_r1.id), '1')] = (linking_r1.id, str(linking_r1.seq))
+        linking_read_seq_dict[(canonical_read_id(linking_r1.id, mate_separator), '1')] = (linking_r1.id, str(linking_r1.seq))
     for linking_r2 in SeqIO.parse(linking_reads_r2_fasta, 'fasta'):
-        linking_read_seq_dict[(canonical_read_id(linking_r2.id), '2')] = (linking_r2.id, str(linking_r2.seq))
+        linking_read_seq_dict[(canonical_read_id(linking_r2.id, mate_separator), '2')] = (linking_r2.id, str(linking_r2.seq))
 
     ########## prepare seq with multi-processing ##########
 
@@ -3419,8 +3433,8 @@ def link_16s(args, config_dict):
 
         report_and_log(('Rd2: splitting sam file'), pwd_log_file, keep_quiet)
         os.mkdir(rd1_unlinked_mags_sam_split_folder)
-        split_gnm_sam_cmd = 'split -l %s %s %s/splitted_sam_ ' % (line_num_per_file, rd1_unlinked_mags_sam_bowtie_sorted, rd1_unlinked_mags_sam_split_folder)
-        os.system(split_gnm_sam_cmd)
+        split_sam_by_pair(rd1_unlinked_mags_sam_bowtie_sorted, rd1_unlinked_mags_sam_split_folder,
+                          line_num_per_file, mate_separator)
         os.remove(rd1_unlinked_mags_sam_bowtie_sorted)
 
         report_and_log(('Rd2: reading in mappping results with %s threads' % num_threads), pwd_log_file, keep_quiet)
@@ -3445,7 +3459,8 @@ def link_16s(args, config_dict):
                                                   min_M_len_ctg,
                                                   mismatch_cutoff,
                                                   round_2_ctg_end_seq_len_dict,
-                                                  ctg_ignore_region_dict_rd2])
+                                                  ctg_ignore_region_dict_rd2,
+                                                  mate_separator])
 
         pool_parse_sam_gnm = mp.Pool(processes=num_threads)
         pool_parse_sam_gnm.map(parse_rd2_sam_gnm_worker, list_for_parse_sam_gnm_worker)
@@ -3475,10 +3490,10 @@ def link_16s(args, config_dict):
 
         extract_reads_by_pair_id(
             reads_file_r1_fasta, to_extract_read_base_rd2_flk_both,
-            rd2_to_extract_flking_both_r1_fa, sequence_format='fasta')
+            rd2_to_extract_flking_both_r1_fa, sequence_format='fasta', mate_separator=mate_separator)
         extract_reads_by_pair_id(
             reads_file_r2_fasta, to_extract_read_base_rd2_flk_both,
-            rd2_to_extract_flking_both_r2_fa, sequence_format='fasta')
+            rd2_to_extract_flking_both_r2_fa, sequence_format='fasta', mate_separator=mate_separator)
         if keep_tmp is False:
             os.remove(rd2_to_extract_flking_both_r1_id)
             os.remove(rd2_to_extract_flking_both_r2_id)
@@ -3486,9 +3501,9 @@ def link_16s(args, config_dict):
         # read sequence of flanking reads into dict
         flk_both_read_seq_dict = {}
         for linking_r1 in SeqIO.parse(rd2_to_extract_flking_both_r1_fa, 'fasta'):
-            flk_both_read_seq_dict[(canonical_read_id(linking_r1.id), '1')] = (linking_r1.id, str(linking_r1.seq))
+            flk_both_read_seq_dict[(canonical_read_id(linking_r1.id, mate_separator), '1')] = (linking_r1.id, str(linking_r1.seq))
         for linking_r2 in SeqIO.parse(rd2_to_extract_flking_both_r2_fa, 'fasta'):
-            flk_both_read_seq_dict[(canonical_read_id(linking_r2.id), '2')] = (linking_r2.id, str(linking_r2.seq))
+            flk_both_read_seq_dict[(canonical_read_id(linking_r2.id, mate_separator), '2')] = (linking_r2.id, str(linking_r2.seq))
 
         ##################################################### get reads flanking 16s and ctg ####################################################
 
@@ -3548,10 +3563,10 @@ def link_16s(args, config_dict):
         if round_2_mira is True:
             argument_list_r1 = [
                 reads_file_r1, 'fastq',
-                rd2_read_to_extract_flanking_both_base, free_living_all_fq_r1]
+                rd2_read_to_extract_flanking_both_base, free_living_all_fq_r1, mate_separator]
             argument_list_r2 = [
                 reads_file_r2, 'fastq',
-                rd2_read_to_extract_flanking_both_base, free_living_all_fq_r2]
+                rd2_read_to_extract_flanking_both_base, free_living_all_fq_r2, mate_separator]
 
 
             # extract reads with multiprocessing
@@ -3617,7 +3632,7 @@ def link_16s(args, config_dict):
                         mini_assembly_len_dict[mini_assembly_id] = mini_assembly_len
                     else:
                         cigar = each_line_split[5]
-                        read_id_base, read_strand = sam_read_id_and_mate(each_line_split)
+                        read_id_base, read_strand = sam_read_id_and_mate(each_line_split, mate_separator)
                         ref_id = each_line_split[2]
                         ref_pos = int(each_line_split[3])
 

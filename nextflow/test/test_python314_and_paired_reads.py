@@ -206,18 +206,32 @@ class FilterOutputTests(unittest.TestCase):
                 self.assertEqual(read_ids(out_forward), CASAVA_IDS)
                 self.assertEqual(read_ids(out_reverse), CASAVA_IDS)
 
-    def test_accepts_legacy_mate_suffixes(self):
+    def test_accepts_every_mate_suffix_matam_accepts(self):
+        # .1/.2 is MarkerMAG's own read naming: it used to stop MATAM_FILTER
+        # with "Paired FASTQ records are out of step".
         for copy in (FILTER.copy_fastq_pair, PAIRING.copy_fastq_pair):
-            with self.subTest(copy=copy.__module__), \
-                    tempfile.TemporaryDirectory() as directory:
-                forward, reverse = write_matam_selected_pair(directory, ["p1/1"], ["p1/2"])
-                directory = Path(directory)
+            for r1, r2 in (("p1/1", "p1/2"), ("Heavy_1691.1", "Heavy_1691.2"),
+                           ("p1_1", "p1_2"), ("p1:1", "p1:2"), ("SRR1.7", "SRR1.7")):
+                with self.subTest(copy=copy.__module__, r1=r1), \
+                        tempfile.TemporaryDirectory() as directory:
+                    forward, reverse = write_matam_selected_pair(directory, [r1], [r2])
+                    directory = Path(directory)
 
-                self.assertEqual(copy(forward, reverse, directory / "o1.fq", directory / "o2.fq"), 1)
+                    self.assertEqual(
+                        copy(forward, reverse, directory / "o1.fq", directory / "o2.fq"), 1)
+
+    def test_pair_rule_matches_matam(self):
+        for module in (FILTER, PAIRING):
+            for id1, id2, same in (("r", "r", True), ("r/1", "r/2", True), ("r.1", "r.2", True),
+                                   ("r.1", "r/2", False), ("r.2", "r.1", False), ("r1.1", "r2.2", False),
+                                   ("a.1", "a.1", True), ("x1", "x2", False)):
+                with self.subTest(module=module.__name__, ids=(id1, id2)):
+                    self.assertIs(module.is_same_pair(id1, id2), same)
 
     def test_rejects_pairs_out_of_step_or_with_different_counts(self):
         cases = (
             (["p1", "p2"], ["p1", "p3"], "out of step"),
+            (["p1.1"], ["p2.2"], "out of step"),
             (["p1", "p2"], ["p1"], "different record counts"),
         )
         for copy in (FILTER.copy_fastq_pair, PAIRING.copy_fastq_pair):
@@ -555,6 +569,152 @@ class PythonCompatibilityTests(unittest.TestCase):
             self.assertEqual(written, 1)
             self.assertEqual(read_ids(output), ["instrument/1"])
             self.assertEqual(PAIRING.canonical_read_id("sample.1"), "sample.1")
+
+
+class MateNamingTests(unittest.TestCase):
+    """MarkerMAG matches mates by the naming each sample uses, detected from
+    its reads; the read IDs themselves are never changed."""
+
+    NAMINGS = (
+        ("shared", ["p1", "p2"], ["p1", "p2"], None),
+        ("slash", ["p1/1", "p2/1"], ["p1/2", "p2/2"], "/"),
+        ("dot", ["Heavy_1.1", "Heavy_2.1"], ["Heavy_1.2", "Heavy_2.2"], "."),
+        ("underscore", ["p1_1", "p2_1"], ["p1_2", "p2_2"], "_"),
+        ("colon", ["p1:1", "p2:1"], ["p1:2", "p2:2"], ":"),
+        ("sra spots", ["SRR1.1", "SRR1.2"], ["SRR1.1", "SRR1.2"], None),
+    )
+
+    def test_detects_each_naming_in_fastq_fasta_and_gzip(self):
+        for label, r1, r2, separator in self.NAMINGS:
+            for suffix in (".fq.gz", ".fq", ".fasta", ".reads"):
+                with self.subTest(naming=label, suffix=suffix), \
+                        tempfile.TemporaryDirectory() as directory:
+                    directory = Path(directory)
+                    paths = []
+                    for mate, ids in (("R1", r1), ("R2", r2)):
+                        path = directory / f"s_{mate}{suffix}"
+                        if suffix in (".fasta",):
+                            path.write_text("".join(f">{i}\nACGT\n" for i in ids))
+                        else:
+                            write_fastq(path, ids)
+                        paths.append(path)
+                    self.assertEqual(PAIRING.detect_mate_separator(*paths), separator)
+
+    def test_mixed_or_out_of_step_naming_is_an_error(self):
+        for r1, r2, message in ((["p1.1", "p2"], ["p1.2", "p2"], "Mixed mate naming"),
+                                (["p1.1"], ["p2.2"], "out of step"),
+                                (["p1", "p2"], ["p1"], "Cannot detect")):
+            with self.subTest(message=message), tempfile.TemporaryDirectory() as directory:
+                directory = Path(directory)
+                write_fastq(directory / "r1.fq", r1)
+                write_fastq(directory / "r2.fq", r2)
+                with self.assertRaisesRegex(ValueError, message):
+                    PAIRING.detect_mate_separator(directory / "r1.fq", directory / "r2.fq")
+
+    def test_pair_id_strips_only_the_detected_suffix(self):
+        cases = (("Heavy_1691.1", ".", "Heavy_1691"), ("Heavy_1691.2 desc", ".", "Heavy_1691"),
+                 ("SRR1.1", None, "SRR1.1"), ("p1/2", "/", "p1"), ("p1_1", "/", "p1_1"),
+                 ("p1_1", "_", "p1"), ("p1.3", ".", "p1.3"), ("sample.1", "/", "sample.1"))
+        for read_id, separator, expected in cases:
+            with self.subTest(read_id=read_id, separator=separator):
+                self.assertEqual(PAIRING.canonical_read_id(read_id, separator), expected)
+
+    def test_sam_mates_of_dot_named_pair_share_the_pair_id(self):
+        # bowtie2 keeps .1/.2 in QNAME (it trims only /1 /2).
+        self.assertEqual(PAIRING.sam_read_id_and_mate(["Heavy_1691.1", "99"], "."),
+                         ("Heavy_1691", "1"))
+        self.assertEqual(PAIRING.sam_read_id_and_mate(["Heavy_1691.2", "147"], "."),
+                         ("Heavy_1691", "2"))
+
+    def test_reads_extracted_by_pair_id_keep_their_names(self):
+        with tempfile.TemporaryDirectory() as directory:
+            directory = Path(directory)
+            source = directory / "r1.fasta"
+            source.write_text(">Heavy_1.1\nACGT\n>Heavy_2.1\nACGT\n")
+            output = directory / "out.fasta"
+            written = PAIRING.extract_reads_by_pair_id(
+                source, {"Heavy_2"}, output, sequence_format="fasta", mate_separator=".")
+            self.assertEqual(written, 1)
+            self.assertEqual(output.read_text(), ">Heavy_2.1\nACGT\n")
+
+    @staticmethod
+    def pair_records(name1, name2, pos, seq="A" * 150):
+        return [[name1, "99", "r16s", str(pos), "42", "150=", "=", str(pos + 200), "350", seq, "*"],
+                [name2, "147", "r16s", str(pos + 200), "42", "150=", "=", str(pos), "-350", seq, "*"]]
+
+    @staticmethod
+    def write_sam(path, records):
+        Path(path).write_text("@HD\tVN:1.0\tSO:queryname\n"
+                              + "".join("\t".join(r) + "\n" for r in records))
+
+    def parse_16s(self, sam, out, separator):
+        link_16s = importlib.import_module("MarkerMAG.link_16s")
+        link_16s.parse_sam16s_worker([str(sam), str(out), 50, 2, {"r16s": 1500}, separator])
+        return Path(out).read_text().splitlines()
+
+    def test_linking_sees_both_mates_of_each_naming(self):
+        """link_16s.parse_sam16s_worker on one pair named three ways: the same
+        record once the mates are matched by the detected naming. Under the
+        old /1-/2-only rule, .1/.2 mates were parsed as separate reads."""
+        both_mapped = ["p1", "1", "0", "0", "1", "r16s:::101:150=", "r16s:::301:150=",
+                       "na", "na", "r16s:150=,150="]
+        for label, names, separator, expected in (
+                ("shared", ("p1", "p1"), None, 1), ("slash", ("p1/1", "p1/2"), "/", 1),
+                ("dot", ("p1.1", "p1.2"), ".", 1), ("dot, old rule", ("p1.1", "p1.2"), "/", 2)):
+            with self.subTest(naming=label), tempfile.TemporaryDirectory() as directory:
+                sam = Path(directory) / "reads.sam"
+                self.write_sam(sam, self.pair_records(*names, 101))
+                lines = self.parse_16s(sam, Path(directory) / "out.mp", separator)
+                # The only (so also the last) pair is written: it used to be lost.
+                self.assertEqual(len(lines), expected)
+                if expected == 1:
+                    self.assertEqual(lines[0].split("\t"), both_mapped)
+
+    def test_sam_is_split_between_pairs_only(self):
+        with tempfile.TemporaryDirectory() as directory:
+            directory = Path(directory)
+            records = []
+            for number in range(1, 8):
+                records += self.pair_records(f"Heavy_{number}.1", f"Heavy_{number}.2", 101)
+                records.append(records[-1][:])  # a second alignment of mate 2
+            self.write_sam(directory / "reads.sam", records)
+            for lines_per_piece in (1, 2, 3, 4, 100):
+                with self.subTest(lines_per_piece=lines_per_piece):
+                    folder = directory / f"split_{lines_per_piece}"
+                    folder.mkdir()
+                    pieces = PAIRING.split_sam_by_pair(directory / "reads.sam", folder,
+                                                       lines_per_piece, ".")
+                    pairs_by_piece = []
+                    body = []
+                    for piece in pieces:
+                        lines = Path(piece).read_text().splitlines()
+                        body += lines
+                        pairs_by_piece.append({PAIRING.canonical_read_id(l.split("\t")[0], ".")
+                                               for l in lines})
+                    self.assertEqual(body, ["\t".join(r) for r in records])  # no header, in order
+                    for a, b in zip(pairs_by_piece, pairs_by_piece[1:]):
+                        self.assertFalse(a & b)  # no pair in two pieces
+                    if lines_per_piece == 3:  # 3 records per pair: one pair per piece
+                        self.assertEqual([len(p) for p in pairs_by_piece], [1] * 7)
+
+    def test_linking_records_do_not_depend_on_the_number_of_pieces(self):
+        with tempfile.TemporaryDirectory() as directory:
+            directory = Path(directory)
+            records = []
+            for number in range(1, 12):
+                records += self.pair_records(f"Heavy_{number}.1", f"Heavy_{number}.2", 100 + 7 * number)
+            self.write_sam(directory / "reads.sam", records)
+            whole = self.parse_16s(directory / "reads.sam", directory / "whole.mp", ".")
+            self.assertEqual(len(whole), 11)  # every pair, the last one included
+            for lines_per_piece in (1, 3, 5, 8):
+                with self.subTest(lines_per_piece=lines_per_piece):
+                    folder = directory / f"split_{lines_per_piece}"
+                    folder.mkdir()
+                    merged = []
+                    for number, piece in enumerate(PAIRING.split_sam_by_pair(
+                            directory / "reads.sam", folder, lines_per_piece, ".")):
+                        merged += self.parse_16s(piece, folder / f"{number}.mp", ".")
+                    self.assertEqual(merged, whole)
 
 
 if __name__ == "__main__":
