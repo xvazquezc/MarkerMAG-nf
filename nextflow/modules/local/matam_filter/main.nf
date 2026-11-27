@@ -3,12 +3,13 @@
 // plus MATAM's alignments of those reads: every subsample assembly takes its
 // read mapping from them instead of mapping again (params.matam_map_once).
 //
-// Uses the same process_matam label as MATAM_ASSEMBLE: the HPC job requests
-// the memory MATAM is told it may use (matam_mem_mb) plus 4 GB per attempt.
+// It maps every raw read, so it has its own label (process_matam_filter:
+// params.matam_filter_threads CPUs, 48 h); the memory is that of the other
+// MATAM jobs (matam_mem_mb plus 4 GB per attempt).
 
 process MATAM_FILTER {
     tag   "${meta.id}"
-    label 'process_matam'
+    label 'process_matam_filter'
 
     input:
     tuple val(meta), path(r1), path(r2)

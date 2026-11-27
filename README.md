@@ -242,6 +242,12 @@ Paired files are subsampled together by record position before each MATAM task.
         --matam_mem_mb 20480 \
         --outdir results
 
+Starting from raw reads, `MATAM_FILTER` maps every read of a sample to find
+its 16S reads: about 0.65 ms of CPU per read with the SILVA 144 database. It
+runs as one job per sample with `--matam_filter_threads` CPUs (default `16`)
+and a 48 h walltime; a sample of 750 M read pairs takes about 18 h at 16 CPUs
+and 7.5 h at 48 (about 25% more SU). The assemblies use `--matam_threads`.
+
 `--matam_db` may be a directory containing exactly one `*.clustered.fasta`
 MATAM index, or the full database prefix when a directory contains multiple
 indexes. The resolved prefix is passed to MATAM as an absolute path and must

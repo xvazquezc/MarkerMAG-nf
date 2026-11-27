@@ -55,6 +55,9 @@ def help_message() {
                        many read overlaps (0: no edge filter, as in
                        MATAM 1.0-1.6)
       --matam_threads  CPUs per MATAM assembly job                      [default: ${params.matam_threads}]
+      --matam_filter_threads
+                       CPUs of the raw-read 16S filtering job            [default: ${params.matam_filter_threads}]
+                       (MATAM_FILTER; ~18 h at 16 for 750 M read pairs)
                        (tool default: 1; MATAM scales well to ~8–16)
       --matam_mem_mb   MATAM --max_memory (MB); jobs request this       [default: ${params.matam_mem_mb}]
                        + 4 GB per attempt (tool default: 10000)
